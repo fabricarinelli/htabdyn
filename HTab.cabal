@@ -1,10 +1,10 @@
 cabal-version:       2.4
-Name:                HTab
+Name:                HTabDyn
 Version:             1.7.2
-Synopsis:            Tableau based theorem prover for hybrid logics
-Description:         Tableau based theorem prover for hybrid logics
-Homepage:            http://hub.darcs.net/gh/htab
-Bug-reports:         http://hub.darcs.net/gh/htab/issues
+Synopsis:            Tableau prover for hybrid logics + dynamic logic
+Description:         Tableau prover for hybrid logics + dynamic logic
+Homepage:            http://hub.darcs.net/gh/htabdyn
+Bug-reports:         http://hub.darcs.net/gh/htabdyn/issues
 Category:            Theorem provers
 License:             BSD-3-Clause
 License-file:        LICENSE
@@ -20,9 +20,9 @@ Data-files:  NEWS
              rc/*.frm
 source-repository head
     type:     darcs
-    location: http://hub.darcs.net/gh/htab
+    location: http://hub.darcs.net/gh/htabdyn
 
-Executable          htab
+Executable          htabdyn
   Default-language:    Haskell2010
   Main-is:             htab.hs
   Other-modules:       HTab.Branch

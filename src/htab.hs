@@ -45,9 +45,9 @@ runCmdLineVersion =
       else return Nothing
 
 header :: String
-header = unlines ["HTab 1.7.0",
+header = unlines ["HTabDyn 1.7.2",
                   "G. Hoffmann, C. Areces, D.Gorin and J. Heguiabehere. (c) 2002-2016.",
-                  "http://hub.darcs.net/gh/htab/"]
+                  "http://hub.darcs.net/gh/htabdyn/"]
 
 gplTag :: [String]
 gplTag = [
