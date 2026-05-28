@@ -25,7 +25,7 @@ data Params = Params {
          , translate       :: Bool
          , minimal         :: Bool
          , random          :: Bool
-         , seed            :: Maybe String
+         , seed            :: Maybe Int
          , test_translations :: Bool
          } deriving (Show, Data, Typeable)
 

@@ -11,7 +11,7 @@ import qualified Data.Map as Map
 import System.Console.CmdArgs ( whenNormal, whenLoud )
 import System.CPUTime( getCPUTime )
 import qualified System.Timeout as T
-import System.Random (StdGen, getStdGen)
+import System.Random (StdGen, getStdGen, mkStdGen)
 import System.IO.Strict ( readFile )
 import Prelude hiding ( readFile )
 
@@ -38,7 +38,7 @@ runWithParams p | test_translations p =
     g <- case seed p of
         Nothing -> getStdGen
         Just s  -> do putStrLn "Using given random seed."
-                      return (read s)
+                      return (mkStdGen s)
     putStrLn "=== UNSAT formulas ==="
     forM_ (zip [1::Int ..] unsats) $ \(i,(mf,rc,h,name)) ->
         do myPutStrLn (show i ++ " " ++ show mf ++ " via " ++ name)
@@ -66,7 +66,7 @@ runWithParams p =
   g <- case seed p of
         Nothing -> getStdGen
         Just s  -> do putStrLn "Using given random seed."
-                      return (read s)
+                      return (mkStdGen s)
   when (random p) $ putStrLn ( unlines ["Will use random seed:",show g])
   i <- readFile (filename p)
   if head (words i) == "begin"

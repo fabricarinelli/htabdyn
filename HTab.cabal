@@ -2,14 +2,10 @@ cabal-version:       2.4
 Name:                HTabDyn
 Version:             1.7.2
 Synopsis:            Tableau prover for hybrid logics + dynamic logic
-Description:         Tableau prover for hybrid logics + dynamic logic
-Homepage:            http://hub.darcs.net/gh/htabdyn
-Bug-reports:         http://hub.darcs.net/gh/htabdyn/issues
+Homepage:            https://github.com/geh/htabdyn
 Category:            Theorem provers
 License:             BSD-3-Clause
 License-file:        LICENSE
-Author:              Guillaume Hoffmann, Carlos Areces, Daniel Gorín, Juan Heguiabehere
-Maintainer:          guillaumh@gmail.com
 Build-type:          Simple
 Extra-source-files:  tests/test-example-formulas.hs
                      tests/coverage.sh
@@ -18,9 +14,6 @@ Data-files:  NEWS
              examples/sat/*.frm
              examples/unsat/*.frm
              rc/*.frm
-source-repository head
-    type:     darcs
-    location: http://hub.darcs.net/gh/htabdyn
 
 Executable          htabdyn
   Default-language:    Haskell2010
@@ -44,7 +37,7 @@ Executable          htabdyn
                        containers,
                        deepseq,
                        strict,
-                       random,
+                       random >= 1.2,
                        cmdargs >= 0.10.10,
                        hylolib >= 1.5.1
   Default-extensions:  GADTs
