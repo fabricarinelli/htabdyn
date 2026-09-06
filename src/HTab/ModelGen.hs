@@ -43,7 +43,7 @@ buildModel br =
          [ (pr, r, pr2) |
              pr <- prefixes br,
              isInTheModel br pr,
-             blockedDia@(PrFormula _ _ (Dia r _)) <- get [] pr (blockedDias br),
+             blockedDia@(PrFormula _ _ _ (Dia r _)) <- get [] pr (blockedDias br),
              let pat = patternOf br blockedDia,
              let pr2 = findByPattern br pat ]
   rels = (allRels $ accStr br) ++ pbBlocked

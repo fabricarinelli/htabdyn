@@ -38,6 +38,7 @@ import qualified HyLo.Formula as F
 import HTab.CommandLine ( Params(..) )
 
 type Prefix  = Int
+type SecondPrefix  = Int
 type Rel     = String
 type Nom     = String
 type Prop    = String
@@ -480,23 +481,23 @@ neg (Lit (NegLit a)) = Lit (PosLit a)
 
 -- prefixed formula
 
-data PrFormula = PrFormula Prefix DependencySet Formula
+data PrFormula = PrFormula Prefix SecondPrefix DependencySet Formula
  deriving Eq
 
 instance Show PrFormula where
- show (PrFormula pr ds f) = show pr ++ ":" ++ dsShow ds ++ ":" ++ show f
+ show (PrFormula pr spr ds f) = show pr ++ ":" ++ dsShow ds ++ ":" ++ show f
 
 showLess :: PrFormula -> String
-showLess (PrFormula pr _ f) = show pr ++ ":" ++ show f
+showLess (PrFormula pr spr _ f) = show pr ++ ":" ++ show f
 
-prefix :: Prefix -> DependencySet -> Set Formula -> [PrFormula]
-prefix p bps fs = [PrFormula p bps formula|formula <- list fs]
+prefix :: Prefix -> SecondPrefix -> DependencySet -> Set Formula -> [PrFormula]
+prefix p spr bps fs = [PrFormula p spr bps formula|formula <- list fs]
 
 firstPrefixedFormula :: Formula -> PrFormula
-firstPrefixedFormula = PrFormula 0 dsEmpty
+firstPrefixedFormula = PrFormula 0 1 dsEmpty
 
 negPr :: PrFormula -> PrFormula
-negPr (PrFormula p ds f) = PrFormula p ds (neg f)
+negPr (PrFormula p spr ds f) = PrFormula p spr ds (neg f)
 
 -- formula language
 
@@ -547,7 +548,7 @@ type DependencySet = IntSet.IntSet
 -- the ordering of prformula's is used in selecting the next formula in the todo list
 -- here we select the one that's most promising for backjumping
 instance Ord PrFormula where
- compare (PrFormula pr1 ds1 f1) (PrFormula pr2 ds2 f2) =
+ compare (PrFormula pr1 spr1 ds1 f1) (PrFormula pr2 spr2 ds2 f2) =
 -- This one seems more performant in many cases:
 
 -- case dsMin ds1 `compare` dsMin ds2 of
@@ -556,7 +557,8 @@ instance Ord PrFormula where
   case  IntSet.size ds1  `compare` IntSet.size ds2 of
    LT -> LT
    GT -> GT
-   EQ -> compare (pr1,f1,ds1) (pr2,f2,ds2)
+   EQ -> compare (pr1,spr1, f1,ds1) (pr2,spr2,f2,ds2)
+-- podria cambiarse la lineaa anterior para comparar spr1 y spr 2 
 
 dsUnion :: DependencySet -> DependencySet -> DependencySet
 dsUnion = IntSet.union
@@ -580,7 +582,7 @@ dsShow :: DependencySet -> String
 dsShow = show . IntSet.toList
 
 addDeps :: DependencySet -> PrFormula -> PrFormula
-addDeps ds1 (PrFormula p ds2 f) = PrFormula p (dsUnion ds1 ds2) f
+addDeps ds1 (PrFormula p spr ds2 f) = PrFormula p spr (dsUnion ds1 ds2) f
 
 list :: Ord a => Set.Set a -> [a]
 list = Set.toList
