@@ -197,20 +197,34 @@ applyRule p rule br g
      | otherwise -> (properNewBranch, g)
           where
                 tryAllPrefixes = map reusePrefix $ filter (isNominalUrfather br) [0..lastPref br]
-                reusePrefix pr' =
-                    addAccFormula p (dsInsert d (dsUnion ds ds2), r, ur, pr') br >>?
+                reusePrefix pr' = case r of
+                  "R0" ->
+                    addAccFormula p (dsInsert d (dsUnion ds ds2), "R0", ur, pr') br >>?
                     addFormulas p [PrFormula pr' spr (dsInsert d ds) f] >>?
-                    addDiaRuleCheck pr (r,f) pr'
-                properNewBranch =
-                  [ createNewNode p br >>?
-                    addAccFormula p (deps, r, ur, newPr) >>?
-                    addFormulas p [PrFormula newPr spr ds f] >>?
-                    addDiaRuleCheck pr (r,f) newPr
-                  ]
-                deps = if CL.random p && minimal p then dsInsert d (dsUnion ds ds2) else dsUnion ds ds2
+                    addDiaRuleCheck pr spr (r,f) pr'
+                  "R1" ->
+                    addAccFormula p (dsInsert d (dsUnion ds sds2), "R0", sur, pr') br >>?
+                    addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
+                    addDiaRuleCheck pr spr (r,f) pr'
+                properNewBranch = case r of
+                  "R0" ->
+                    [ createNewNode p br >>?
+                      addAccFormula p (depsL, "R0", ur, newPr) >>?
+                      addFormulas p [PrFormula newPr spr ds f] >>?
+                      addDiaRuleCheck pr spr (r,f) newPr
+                    ]
+                  "R1" ->
+                    [ createNewNode p br >>?
+                      addAccFormula p (depsR, "R0", sur, newPr) >>?
+                      addFormulas p [PrFormula pr newPr ds f] >>?
+                      addDiaRuleCheck pr spr (r,f) newPr
+                    ]
+                depsL = if CL.random p && minimal p then dsInsert d (dsUnion ds ds2) else dsUnion ds ds2
+                depsR = if CL.random p && minimal p then dsInsert d (dsUnion ds sds2) else dsUnion ds sds2
                 choices = tryAllPrefixes ++ properNewBranch
                 newPr      = lastPref br + 1
                 (ur,ds2,_) = getUrfatherAndDeps br (DS.Prefix pr)
+                (sur,sds2,_) = getUrfatherAndDeps br (DS.Prefix spr)
     ExistRule (PrFormula _ spr ds (E f2)) d -- here, if minimal, branch on all prefixes
      | minimal p -> if CL.random p then shuffle g choices else (choices, g)
      | otherwise -> (properNewBranch, g)

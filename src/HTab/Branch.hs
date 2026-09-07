@@ -56,7 +56,7 @@ data Branch =
                  -- pending formulas / todo lists
                       todoList :: TodoList,
                  -- saturation of rules
-                       diaRlCh :: IntMap {- Prefix -} (Set (Rel,Formula)),
+                       diaRlCh :: IntMap {- Prefix -} (Set (Prefix,Rel,Formula)),
                       downRlCh :: IntMap {- Prefix -} (Set Formula),
                         atRlCh :: Set (Nom,Formula),
                      existRlCh :: Set Formula,
@@ -203,6 +203,8 @@ putAwayFormula p pf@(PrFormula pr spr ds f2) br =
    At _ _     -> BranchOK $ addToTodo pf br
    Down _ _   -> BranchOK $ addToTodo pf br
    Lit l | isPositiveNom l -> addToLiterals pr ds l $ addToTodo pf br
+   Lit l | isLProp l   -> addToLiterals pr  ds l br
+   Lit l | isRProp l  -> addToLiterals spr ds l br  
    Lit l                   -> addToLiterals pr ds l br
 
 putAwayDisjunction :: Params -> PrFormula -> Branch -> BranchInfo
@@ -573,20 +575,22 @@ findByPattern br pattern =
 -- add checks for
 --  1. pattern blocking
 --  2. prefix-level diamond rule saturation
-addDiaRuleCheck :: Prefix -> (Rel,Formula) -> Prefix -> Branch -> BranchInfo
-addDiaRuleCheck pr (r,f) newPr br =
+addDiaRuleCheck :: Prefix -> Prefix -> (Rel,Formula) -> Prefix -> Branch -> BranchInfo
+addDiaRuleCheck pr spr (r,f) newPr br =
   BranchOK br2
-   where pattern = patternOf br (PrFormula ur 1 dsEmpty (Dia r f))
+   where pattern = patternOf br (PrFormula ur sur dsEmpty (Dia r f))
          br1 = br{patterns = I.insert newPr pattern (patterns br)}
-         br2 = br1{diaRlCh=I.insertWith Set.union ur (Set.singleton (r,f)) (diaRlCh br1)}
+         br2 = br1{diaRlCh=I.insertWith Set.union ur (Set.singleton (sur,r,f)) (diaRlCh br1)}
          ur = getUrfather br (DS.Prefix pr)
+         sur = getUrfather br (DS.Prefix spr)
 
 diaAlreadyDone :: Branch -> PrFormula -> Bool
 diaAlreadyDone b (PrFormula p spr _ (Dia r f)) =
     case I.lookup ur (diaRlCh b) of
       Nothing  -> False
-      Just fset -> Set.member (r,f) fset
+      Just fset -> Set.member (sur, r,f) fset
  where ur = getUrfather b (DS.Prefix p)
+       sur = getUrfather b (DS.Prefix spr)
 
 diaAlreadyDone _ _ = error "dia already done : wrong formula kind"
 

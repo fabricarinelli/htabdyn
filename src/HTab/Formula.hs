@@ -14,7 +14,7 @@ parse, simpleParse, Theory, RelInfo, Task,
 showRelInfo, negLit,
 encodeValidityTest, encodeSatTest, encodeRetrieveTask,
 HyLoFormula, RelProperty(..),
-isPositiveNom, isPositiveProp, isProp, list, imp,
+isPositiveNom, isPositiveProp, isProp, isLProp, isRProp, list, imp,
 trSab, trSwap, trBri, emptyset
 )
 
@@ -38,7 +38,6 @@ import qualified HyLo.Formula as F
 import HTab.CommandLine ( Params(..) )
 
 type Prefix  = Int
-type SecondPrefix  = Int
 type Rel     = String
 type Nom     = String
 type Prop    = String
@@ -49,7 +48,7 @@ negLit :: Literal -> Literal
 negLit (PosLit a) = NegLit a
 negLit (NegLit a) = PosLit a
 
-isPositiveNom, isPositiveProp, isProp :: Literal -> Bool
+isPositiveNom, isPositiveProp, isProp, isLProp, isRProp :: Literal -> Bool
 isPositiveNom (PosLit (N _))  = True
 isPositiveNom _               = False
 isPositiveProp (PosLit (P _)) = True
@@ -57,6 +56,12 @@ isPositiveProp _              = False
 isProp (PosLit (P _))         = True
 isProp (NegLit (P _))         = True
 isProp _                      = False 
+isLProp (PosLit (P ('P':'0':'_':_))) = True
+isLProp (NegLit (P ('P':'0':'_':_))) = True
+isLProp _                        = False
+isRProp (PosLit (P ('P':'1':'_':_))) = True
+isRProp (NegLit (P ('P':'1':'_':_))) = True
+isRProp _                        = False
 
 instance Show Atom where
  show (Taut) = "T"
@@ -481,7 +486,7 @@ neg (Lit (NegLit a)) = Lit (PosLit a)
 
 -- prefixed formula
 
-data PrFormula = PrFormula Prefix SecondPrefix DependencySet Formula
+data PrFormula = PrFormula Prefix Prefix DependencySet Formula
  deriving Eq
 
 instance Show PrFormula where
@@ -490,7 +495,7 @@ instance Show PrFormula where
 showLess :: PrFormula -> String
 showLess (PrFormula pr spr _ f) = show pr ++ ":" ++ show f
 
-prefix :: Prefix -> SecondPrefix -> DependencySet -> Set Formula -> [PrFormula]
+prefix :: Prefix -> Prefix -> DependencySet -> Set Formula -> [PrFormula]
 prefix p spr bps fs = [PrFormula p spr bps formula|formula <- list fs]
 
 firstPrefixedFormula :: Formula -> PrFormula
