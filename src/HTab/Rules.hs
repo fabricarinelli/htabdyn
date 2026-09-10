@@ -38,6 +38,7 @@ import HTab.CommandLine(Params, UnitProp(..),
 import qualified HTab.CommandLine as CL ( random )
 import HTab.RuleId(RuleId(..))
 import qualified HTab.DisjSet as DS
+import Debug.Trace (trace)
 
 -- rule constructors contain the data needed to modify a branch
 
@@ -191,7 +192,8 @@ clash@(BranchClash _ _ _ _) >>? _ = clash
 
 applyRule :: Params -> Rule -> Branch -> StdGen -> ([BranchInfo], StdGen)
 applyRule p rule br g
- = case rule of
+ = trace ("se ejecuto applyRule con: " ++ show rule) $
+   case rule of
     DiaRule (PrFormula pr spr ds (Dia r f)) d -- here, if minimal, branch on all prefixes
      | minimal p -> if CL.random p then shuffle g choices else (choices, g)
      | otherwise -> (properNewBranch, g)
@@ -199,26 +201,32 @@ applyRule p rule br g
                 tryAllPrefixes = map reusePrefix $ filter (isNominalUrfather br) [0..lastPref br]
                 reusePrefix pr' = case r of
                   "R0" ->
+                    trace ("  -> Blocking: L intenta reusar el mundo " ++ show pr') $
                     addAccFormula p (dsInsert d (dsUnion ds ds2), "R0", ur, pr') br >>?
                     addFormulas p [PrFormula pr' spr (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
                   "R1" ->
+                    trace("  -> Blocking: R intenta reusar el mundo " ++ show pr') $
                     addAccFormula p (dsInsert d (dsUnion ds sds2), "R0", sur, pr') br >>?
                     addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
+                  _ -> error "Syntaxis error on diamonds"
                 properNewBranch = case r of
                   "R0" ->
+                    trace "Aplicando regla diamante para L"
                     [ createNewNode p br >>?
                       addAccFormula p (depsL, "R0", ur, newPr) >>?
                       addFormulas p [PrFormula newPr spr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
                   "R1" ->
+                    trace "Aplicando regla diamante para R"
                     [ createNewNode p br >>?
                       addAccFormula p (depsR, "R0", sur, newPr) >>?
                       addFormulas p [PrFormula pr newPr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
+                  _ -> error "Syntaxis error on diamonds"
                 depsL = if CL.random p && minimal p then dsInsert d (dsUnion ds ds2) else dsUnion ds ds2
                 depsR = if CL.random p && minimal p then dsInsert d (dsUnion ds sds2) else dsUnion ds sds2
                 choices = tryAllPrefixes ++ properNewBranch

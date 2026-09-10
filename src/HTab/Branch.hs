@@ -459,22 +459,36 @@ boxRule deps (mapBox, mapAcc)
                       (f,ds1) <- (Map.!) mapBox r1,
                       (p,ds2) <- (Map.!) mapAcc r2     ]
 
-addBoxConstraint :: Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
+addBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
                      -> BranchInfo
-addBoxConstraint pr_ r f ds p br
- | boxAlreadyDone br pr (r,f) = BranchOK br
- | otherwise
-    = let newBr = br{boxFwd = updateBoxConstr pr r f ds (boxFwd br)}
-          succs  = get [] r $ successors (accStr br) pr
+addBoxConstraint pr_ spr r f ds p br
+ | boxAlreadyDone br pr spr (r,f) = BranchOK br
+ | otherwise = case r of
+    "R0"->
+      let newBr = br{boxFwd = updateBoxConstr pr "R0" f ds (boxFwd br)}
+          succs = get [] "R0" $ successors (accStr br) pr
           toAdd = fromTrans ++ fromBox
           fromTrans
-           = if isTransitive (relInfo br) r
-              then map (\(pr2,ds2) -> PrFormula pr2 1 (dsUnion ds ds2) (Box r f)) succs
+           = if isTransitive (relInfo br) "R0"
+              then map (\(pr2,ds2) -> PrFormula pr2 spr (dsUnion ds ds2) (Box r f)) succs
               else []
-          fromBox = map (\(pr2,ds2) -> PrFormula pr2 1 (dsUnion ds ds2) f) succs
+          fromBox = map (\(pr2,ds2) -> PrFormula pr2 spr (dsUnion ds ds2) f) succs
     -- todo check again with new pattern, create successor if new pattern not realized
       in
          addFormulas p toAdd newBr
+    "R1"->
+      let newBr = br{boxFwd = updateBoxConstr spr "R0" f ds (boxFwd br)}
+          succs = get [] "R0" $ successors (accStr br) spr
+          toAdd = fromTrans ++ fromBox
+          fromTrans
+           = if isTransitive (relInfo br) "R0"
+              then map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) (Box r f)) succs
+              else []
+          fromBox = map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) f) succs
+    -- todo check again with new pattern, create successor if new pattern not realized
+      in
+         addFormulas p toAdd newBr
+    _ -> error "Syntaxis error on boxes"
  where pr = getUrfather br (DS.Prefix pr_)
 
 updateBoxConstr :: Prefix -> Rel -> Formula -> DependencySet -> BoxConstraints
@@ -489,13 +503,17 @@ updateBoxConstr p1_ r_ f_ ds_ boxConstr_ =
         Just innerInnerList
          -> I.insert p1_ (Map.insert r_ ((f_,ds_):innerInnerList) innerMap) boxConstr_
 
-boxAlreadyDone :: Branch -> Prefix -> (Rel,Formula) -> Bool
-boxAlreadyDone br ur (r,f)
- = case ( do inner <- I.lookup ur (boxFwd br)
-             boxes <- map (\(e,_) -> e) <$> Map.lookup r inner
-             return (f `elem` boxes) ) of
-     Just True -> True
-     _         -> False
+boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Rel,Formula) -> Bool
+boxAlreadyDone br ur sur (r,f)
+  = let targetNode = case r of
+                        "R0" -> ur
+                        "R1" -> sur
+                        _    -> error "Syntaxis error on boxes"
+  in case ( do  inner <- I.lookup targetNode (boxFwd br)
+                boxes <- map (\(e,_) -> e) <$> Map.lookup r inner 
+                return (f `elem` boxes) ) of
+      Just True -> True
+      _         -> False
 
 -- accessibility Formulas
 
