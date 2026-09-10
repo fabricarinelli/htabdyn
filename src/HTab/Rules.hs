@@ -191,7 +191,7 @@ clash@(BranchClash _ _ _ _) >>? _ = clash
 
 applyRule :: Params -> Rule -> Branch -> StdGen -> ([BranchInfo], StdGen)
 applyRule p rule br g
- = case rule of
+ =  case rule of
     DiaRule (PrFormula pr spr ds (Dia r f)) d -- here, if minimal, branch on all prefixes
      | minimal p -> if CL.random p then shuffle g choices else (choices, g)
      | otherwise -> (properNewBranch, g)
@@ -206,6 +206,7 @@ applyRule p rule br g
                     addAccFormula p (dsInsert d (dsUnion ds sds2), "R0", sur, pr') br >>?
                     addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
+                  _ -> error "Syntaxis error on diamonds"
                 properNewBranch = case r of
                   "R0" ->
                     [ createNewNode p br >>?
@@ -219,6 +220,7 @@ applyRule p rule br g
                       addFormulas p [PrFormula pr newPr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
+                  _ -> error "Syntaxis error on diamonds"
                 depsL = if CL.random p && minimal p then dsInsert d (dsUnion ds ds2) else dsUnion ds ds2
                 depsR = if CL.random p && minimal p then dsInsert d (dsUnion ds sds2) else dsUnion ds sds2
                 choices = tryAllPrefixes ++ properNewBranch
