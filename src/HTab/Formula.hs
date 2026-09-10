@@ -56,11 +56,11 @@ isPositiveProp _              = False
 isProp (PosLit (P _))         = True
 isProp (NegLit (P _))         = True
 isProp _                      = False 
-isLProp (PosLit (P ('P':'0':'_':_))) = True
-isLProp (NegLit (P ('P':'0':'_':_))) = True
+isLProp (PosLit (P ('P':'0':_))) = True
+isLProp (NegLit (P ('P':'0':_))) = True
 isLProp _                        = False
-isRProp (PosLit (P ('P':'1':'_':_))) = True
-isRProp (NegLit (P ('P':'1':'_':_))) = True
+isRProp (PosLit (P ('P':'1':_))) = True
+isRProp (NegLit (P ('P':'1':_))) = True
 isRProp _                        = False
 
 instance Show Atom where
@@ -490,7 +490,7 @@ data PrFormula = PrFormula Prefix Prefix DependencySet Formula
  deriving Eq
 
 instance Show PrFormula where
- show (PrFormula pr spr ds f) = show pr ++ ":" ++ dsShow ds ++ ":" ++ show f
+ show (PrFormula pr spr ds f) = show pr ++"-"++ show spr ++":" ++ dsShow ds ++ ":" ++ show f
 
 showLess :: PrFormula -> String
 showLess (PrFormula pr spr _ f) = show pr ++ ":" ++ show f

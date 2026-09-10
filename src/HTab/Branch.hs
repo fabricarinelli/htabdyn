@@ -19,7 +19,6 @@ isTransitive
 ) where
 
 import Data.Maybe( mapMaybe )
-
 import Data.Map ( Map )
 import qualified Data.Map as Map
 import Data.Set ( Set )
@@ -37,6 +36,7 @@ import HTab.Literals ( UpdateResult(..), Literals,
                        SlotUpdateResult(..), LiteralSlot,
                        updateMap, lsUnions, lsAddDeps, lsQuery,
                        positiveNom)
+import Debug.Trace (trace)
 
 data BranchInfo = BranchOK Branch |
                   BranchClash Branch Prefix DependencySet Formula
@@ -140,7 +140,7 @@ emptyTodoList =
                }
 
 addFormulas :: Params -> [PrFormula] -> Branch -> BranchInfo
-addFormulas p fs br =
+addFormulas p fs br = trace ("se ejecuto addFormulaS con: " ++ show fs)$ 
  foldr (\f bi ->
           case bi of
            BranchOK br2 -> addFormula p br2 f
@@ -151,7 +151,8 @@ addFormulas p fs br =
 
 addFormula :: Params -> Branch -> PrFormula -> BranchInfo
 addFormula p br pf
- =   putAwayFormula  p pf
+ =trace ("se ejecuto addFormula con: " ++ show pf)$   
+  putAwayFormula  p pf
    $ bookKeepFormula p pf br
 
 bookKeepFormula :: Params -> PrFormula -> Branch -> Branch
@@ -193,6 +194,7 @@ rescheduleLazyBranching _ _ br = br
 
 putAwayFormula :: Params -> PrFormula -> Branch -> BranchInfo
 putAwayFormula p pf@(PrFormula pr spr ds f2) br =
+ trace ("se ejecuto putAwayFormula con: " ++ show pf) $ 
  case f2 of
    Con fs     -> addFormulas p (prefix pr spr ds fs) br
    Dis _      -> putAwayDisjunction p pf br
@@ -253,6 +255,7 @@ doLazyBranching pr lit pfs br
 
 addToTodo :: PrFormula -> Branch -> Branch
 addToTodo pf@(PrFormula p spr ds f2) br =
+  trace("se ejecuto addToDo con: " ++ show pf)$
   if alreadyDone
    then br
    else brWithSaturation{todoList = newTodoList}
@@ -498,7 +501,8 @@ boxAlreadyDone br ur (r,f)
 
 addAccFormula :: Params -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
 addAccFormula p (ds, r, p1_, p2_) br
-   = addFormulas p toAdd newBr
+   = trace ("Ejecutando addAccFormula con " ++ show p1 ++ "->" ++ show p2 ++ "Las boxApplications fueron "++ show boxApplications) $ 
+    addFormulas p toAdd newBr
      where
       toAdd = transApplications ++ boxApplications
       transApplications =
@@ -576,7 +580,7 @@ findByPattern br pattern =
 --  1. pattern blocking
 --  2. prefix-level diamond rule saturation
 addDiaRuleCheck :: Prefix -> Prefix -> (Rel,Formula) -> Prefix -> Branch -> BranchInfo
-addDiaRuleCheck pr spr (r,f) newPr br =
+addDiaRuleCheck pr spr (r,f) newPr br = trace ("se ejecuto addDiaRuleCheck con: " ++ show pf)$ 
   BranchOK br2
    where pattern = patternOf br (PrFormula ur sur dsEmpty (Dia r f))
          br1 = br{patterns = I.insert newPr pattern (patterns br)}
@@ -672,7 +676,7 @@ initialBranch p fLang relInfo_ f
                    existRlCh         = Set.empty,
                    patterns          = I.empty,
                    univCons          = [],
-                   lastPref          = nbNs,
+                   lastPref          = max 1 nbNs,
                    nextNom           = 0,
                    prToDepSet        = I.empty,
                    brWitnesses       = I.empty,
