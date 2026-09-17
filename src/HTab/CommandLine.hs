@@ -57,7 +57,7 @@ defaultParams
       ] += verbosity
 
 strategyVal :: String
-strategyVal = "n@E<b|r"
+strategyVal = "n<|"
 
 checkParams :: Params -> IO Bool
 checkParams p
