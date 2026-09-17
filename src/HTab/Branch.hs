@@ -4,13 +4,13 @@ Branch(..), BranchInfo(..), TodoList(..),
 createNewNode, createNewNom,
 addFormulas, addAccFormula,
 addToBlockedDias,
-addDiaRuleCheck, addDownRuleCheck,
+addDiaRuleCheck,
 initialBranch,
 reduceDisjunctionProposeLazy, doLazyBranching,
 merge,
 getUrfather, getUrfatherAndDeps,
 getModelRepresentative, patternBlocked,
-diaAlreadyDone, downAlreadyDone,
+diaAlreadyDone,
 ReducedDisjunct(..),
 patternOf, findByPattern,
 prefixes, isNominalUrfather, isInTheModel,
@@ -52,14 +52,10 @@ data Branch =
                         accStr :: OutRels,
                  -- local and global constraints
                         boxFwd :: BoxConstraints,
-                      univCons :: [(DependencySet,Formula)],
                  -- pending formulas / todo lists
                       todoList :: TodoList,
                  -- saturation of rules
                        diaRlCh :: IntMap {- Prefix -} (Set (Prefix,Rel,Formula)),
-                      downRlCh :: IntMap {- Prefix -} (Set Formula),
-                        atRlCh :: Set (Nom,Formula),
-                     existRlCh :: Set Formula,
                  -- pattern blocking
                       patterns :: IntMap (Set Formula),
                  -- backjumping data attached to equivalence classes
@@ -89,10 +85,6 @@ instance Show Branch where
      showIMap (\v -> "(" ++ showMap_lits2 v ++ ")") "\n " (brWitnesses br),
      "\nDia rule chart: ", show (diaRlCh br),
      "\nIndividual patterns: ", show (patterns br),
-     "\nDown rule chart: ", show (downRlCh br),
-     "\n@ rule chart: ", show (list $ atRlCh br),
-     "\nExist rule chart: ", show (list $ existRlCh br),
-     "\nUniv constraints: ", show (univCons br),
      "\nPrefix to dependency set: ", showIMap  dsShow "\n " (prToDepSet br),
      "\nPrefix-Nominal classes : ", showMap ", " (nomPrefClasses br),
      "\nlastPref : ", show (lastPref br),
@@ -121,22 +113,14 @@ showTodo :: TodoList -> String
 showTodo t = unlines
  [ "DisjTodo  " ++ show (disjTodo t)
  , "DiaTodo   " ++ show (diaTodo t)
- , "ExistTodo " ++ show (existTodo t)
- , "AtTodo    " ++ show (atTodo t)
- , "DownTodo  " ++ show (downTodo t)
  , "MergeTodo " ++ show (mergeTodo t)
- , "RoleITodo " ++ show (roleIncTodo t)
  ]
 
 emptyTodoList :: TodoList
 emptyTodoList =
       TodoList {  disjTodo = Set.empty,
                    diaTodo = Set.empty,
-                 existTodo = Set.empty,
-                    atTodo = Set.empty,
-                  downTodo = Set.empty,
-                 mergeTodo = Set.empty,
-               roleIncTodo = Set.empty
+                 mergeTodo = Set.empty
                }
 
 addFormulas :: Params -> [PrFormula] -> Branch -> BranchInfo
@@ -197,11 +181,7 @@ putAwayFormula p pf@(PrFormula pr spr ds f2) br =
    Con fs     -> addFormulas p (prefix pr spr ds fs) br
    Dis _      -> putAwayDisjunction p pf br
    Dia _ _    -> BranchOK $ addToTodo pf br
-   Box r f    -> addBoxConstraint      pr r f ds p br
-   A f        -> addUnivConstraint          f ds p br
-   E _        -> BranchOK $ addToTodo pf br
-   At _ _     -> BranchOK $ addToTodo pf br
-   Down _ _   -> BranchOK $ addToTodo pf br
+   Box r f    -> addBoxConstraint      pr spr r f ds p br
    Lit l | isPositiveNom l -> addToLiterals pr ds l $ addToTodo pf br
    Lit l | isLProp l   -> addToLiterals pr  ds l br
    Lit l | isRProp l  -> addToLiterals spr ds l br  
@@ -255,16 +235,13 @@ addToTodo :: PrFormula -> Branch -> Branch
 addToTodo pf@(PrFormula p spr ds f2) br =
   if alreadyDone
    then br
-   else brWithSaturation{todoList = newTodoList}
+   else br{todoList = newTodoList}
   where
    utodo = todoList br
    newTodoList =
        case f2 of
          Dis _              -> utodo{ disjTodo = Set.insert pf ( disjTodo utodo)}
          Dia _ _            -> utodo{  diaTodo = Set.insert pf (  diaTodo utodo)}
-         E _                -> utodo{existTodo = Set.insert pf (existTodo utodo)}
-         At _ _             -> utodo{   atTodo = Set.insert pf (   atTodo utodo)}
-         Down _ _           -> utodo{ downTodo = Set.insert pf ( downTodo utodo)}
          Lit l
           | isPositiveNom l -> utodo{mergeTodo = Set.insert (ds,p,s)
                                                             (mergeTodo utodo)}
@@ -272,21 +249,12 @@ addToTodo pf@(PrFormula p spr ds f2) br =
          _                  -> error $ "addToTodo: " ++ show f2
    alreadyDone =
     case f2 of
-     E  f3              -> Set.member f3 (existRlCh br)
-     At n f3            -> Set.member (n,f3) (atRlCh br)
-     Down _ _           -> downAlreadyDone br pf
      Dia  _ _           -> False -- test happens when the todo list is processed
      Dis _              -> False -- test happens when the todo list is processed
      Lit l
       | isPositiveNom l -> inSameClass br p s
                             where (PosLit (N s)) = l
      _                  -> error $ "alreadyDone: " ++ show f2
-   brWithSaturation =
-    case f2 of
-     E f3        -> br{existRlCh = Set.insert f3 (existRlCh br)}
-     At n f3     -> br{atRlCh    = Set.insert (n,f3) (atRlCh br)}
-     _           -> br
-
 rescheduleBlockedDias :: Prefix -> Branch -> Branch
 rescheduleBlockedDias  pr br
  = foldr addToTodo br2 toAdd
@@ -613,41 +581,13 @@ diaAlreadyDone b (PrFormula p spr _ (Dia r f)) =
 diaAlreadyDone _ _ = error "dia already done : wrong formula kind"
 
 
-addDownRuleCheck :: Prefix -> Formula -> Branch -> BranchInfo
-addDownRuleCheck pr f br =
-  BranchOK br{downRlCh=I.insertWith Set.union ur (Set.singleton f) (downRlCh br)}
-   where ur = getUrfather br (DS.Prefix pr)
-
-downAlreadyDone :: Branch -> PrFormula -> Bool
-downAlreadyDone b (PrFormula p spr _ f@(Down _ _)) =
-  case I.lookup ur (downRlCh b) of
-     Nothing  -> False
-     Just fset -> Set.member f fset
- where ur = getUrfather b (DS.Prefix p)
-
-downAlreadyDone _ _ = error "down already done : wrong formula kind"
-
 -- | return some nominal that holds at a given prefix
 positiveNomOf :: Branch -> Prefix -> Maybe String
 positiveNomOf b p = positiveNom (literals b) ur
  where ur = getUrfather b (DS.Prefix p)
 
-addUnivConstraint :: Formula -> DependencySet -> Params -> Branch -> BranchInfo
-addUnivConstraint f ds p br
- = addFormulas p [PrFormula pr 1 ds f | pr <- urfathers] newBr
-   where newBr = br{univCons = (ds,f):(univCons br)}
-         prefs = [0..(lastPref br)]
-         urfathers = filter (isNominalUrfather br) prefs
-
 createNewNode :: Params -> Branch -> BranchInfo
-createNewNode p br
- = addFormulas p
-               ( map (\(ds,f) -> PrFormula newPr 1 ds f) univConstraints )
-               newBrWithRefl
-   where newPr = lastPref br + 1
-         newBr = br{lastPref = newPr}
-         univConstraints = univCons br
-         newBrWithRefl = addReflexiveLinks newPr newBr
+createNewNode _ br = BranchOK br{lastPref = lastPref br + 1}
 
 addReflexiveLinks :: Prefix -> Branch -> Branch
 addReflexiveLinks pr br
@@ -685,11 +625,7 @@ initialBranch p fLang relInfo_ f
                    todoList          = emptyTodoList,
                    boxFwd            = D.empty,
                    diaRlCh           = I.empty,
-                   downRlCh          = I.empty,
-                   atRlCh            = Set.empty,
-                   existRlCh         = Set.empty,
                    patterns          = I.empty,
-                   univCons          = [],
                    lastPref          = nbNs,
                    nextNom           = 0,
                    prToDepSet        = I.empty,

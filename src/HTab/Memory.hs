@@ -1,4 +1,4 @@
-module HTab.Memory ( sats, unsats )
+module HTab.Memory
 where
 
 import qualified Data.Set as Set
@@ -59,20 +59,6 @@ sats_mem = chain4 : concat [ nested f | f <- [rekn1, rekn2, rekn3, rekn4]]
 nested :: MemFormula -> [MemFormula]
 nested f = [f, MDia f, MDia $ MDia f, MDia $ MDia $ MDia f]
 
--- test suite for translations Memory Logic -> Relation-Changing logics
-unsats, sats :: [(MemFormula, Formula,Formula,String)]
-unsats = concatMap memToHybrid unsats_mem  -- all of them should be found UNSAT
-sats   = concatMap memToHybrid sats_mem    -- all of them should be found SAT
-
--- given a memory logic formula, translate it to the 6 relation-changing logics + translate again to hybrid logic
-memToHybrid :: MemFormula -> [(MemFormula,Formula,Formula,String)]
-memToHybrid f = map (\(rcTr, hTr,name) -> (f, rcTr f, hTr (rcTr f), name))
-  [ (memGSb, trSab  emptyset, "Global Sabotage")
-  , (memGSw, trSwap emptyset, "Global Swap")
-  , (memGBr, trBri  emptyset, "Global Bridge")
-  , (memLBr, trBri  emptyset, "Local Bridge")
-  , (memLSw, trSwap emptyset, "Local Swap")
-  , (memLSb, trSab  emptyset, "Local Sabotage")  ]
 
 -- ^ translate a memory logic formula into a global sabotage
 --   formula where modalities are R and GSB

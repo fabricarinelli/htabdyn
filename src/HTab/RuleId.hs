@@ -39,10 +39,7 @@ data RuleId = R_Dia     -- Diamond <r>
             | R_DiaX    -- DiamondX <r*>
             | R_Disj    -- Disjunction
             | R_SemBr   -- Semantic Branching
-            | R_At      -- Satisfaction operator (@) rule
-            | R_Down    -- Down-arrow rule
             | R_NegNom  -- Negation before nominal rule
-            | R_Exist   -- Existential modality
             | R_Discard -- Discarding a formula
             | R_DiscardDown
             | R_DiscardDiaDone

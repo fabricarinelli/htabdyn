@@ -23,9 +23,8 @@ import HTab.Branch( BranchInfo(..), initialBranch)
 import HTab.Statistics( Statistics, initialStatisticsStateFor, printOutMetricsFinal )
 import HTab.Tableau( OpenFlag(..), tableauStart )
 import HTab.Formula( Theory, RelInfo, LanguageInfo(..), Task,
-                     Formula(Con), encodeValidityTest, encodeSatTest, encodeRetrieveTask,
+                     Formula(Con), encodeValidityTest, encodeSatTest,
                      showRelInfo, list )
-import HTab.Memory (unsats, sats)
 import qualified HTab.Formula as F
 import qualified HyLo.Signature.String as S
 import HTab.ModelGen ( Model, toDot )
@@ -33,34 +32,6 @@ import HTab.ModelGen ( Model, toDot )
 data TaskRunFlag = SUCCESS | FAILURE
 
 runWithParams :: Params -> IO (Maybe TaskRunFlag)
-runWithParams p | test_translations p =
- do putStrLn "Running memory logic to relation-changing logics test suite."
-    g <- case seed p of
-        Nothing -> getStdGen
-        Just s  -> do putStrLn "Using given random seed."
-                      return (mkStdGen s)
-    putStrLn "=== UNSAT formulas ==="
-    forM_ (zip [1::Int ..] unsats) $ \(i,(mf,rc,h,name)) ->
-        do myPutStrLn (show i ++ " " ++ show mf ++ " via " ++ name)
-           r <- inTimeout (timeout p) $
-                  do (result,_) <- tableauInit p g $ initialBranch p (LanguageInfo []) Map.empty h
-                     return result
-           case r of
-            Nothing         -> myPutStrLn "Timeout"
-            Just (CLOSED _) -> myPutStrLn "OK"
-            Just (OPEN _)   -> myPutStrLn ("ERROR: formula is sat\n" ++ show rc)
-    putStrLn "=== SAT formulas ==="
-    forM_ (zip [(length unsats + 1)::Int ..] sats) $ \(i,(mf,rc,h,name)) ->
-        do myPutStrLn (show i ++ " " ++ show mf ++ " via " ++ name)
-           r <- inTimeout (timeout p) $
-                  do (result,_) <- tableauInit p g $ initialBranch p (LanguageInfo []) Map.empty h
-                     return result
-           case r of
-            Nothing         -> myPutStrLn "Timeout"
-            Just (OPEN _)   -> myPutStrLn "OK"
-            Just (CLOSED _) -> myPutStrLn ("ERROR: formula is unsat\n" ++ show rc)
-    return (Just SUCCESS)
-
 runWithParams p =
  time "Total time: " $ do
   g <- case seed p of
@@ -138,20 +109,6 @@ runTasks2 (theory,relInfo,fLang,(hd:tl)) p g =
 --
 
 runTask :: Task -> RelInfo -> LanguageInfo -> Formula -> Params -> StdGen -> IO TaskRunFlag
-runTask (Retrieve,mOutFile,fs) relInfo fLang theory p g =
- do myPutStrLn "\n* Instance retrieval task"
-    let (noms,encfs) = encodeRetrieveTask relInfo fLang theory fs
-    --
-    myPutStrLn $ "Instances making true: " ++ show fs
-    --
-    results <- mapM (tableauInit p g . initialBranch p fLang relInfo) encfs -- NOTE: we reuse the same random generator
-    let goods = [ S.NomSymbol n | (n,(CLOSED _ ,_)) <- zip noms results]
-    myPutStrLn $ show goods
-    let doWrite f = do writeFile f (show goods ++ "\n")
-                       myPutStrLn ("Nominals saved as " ++ f)
-    maybe (return ()) doWrite mOutFile
-    return SUCCESS
-
 runTask (Satisfiable,mOutFile,fs) relInfo fLang theory p g =
  do myPutStrLn "\n* Satisfiability task"
     let f = encodeSatTest relInfo theory fs
