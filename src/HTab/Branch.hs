@@ -482,16 +482,16 @@ boxAlreadyDone br ur sur (r,f)
 
 -- accessibility Formulas
 
-addAccFormula :: Params -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
-addAccFormula p (ds, r, p1_, p2_) br
+addAccFormula :: Params -> Prefix -> Prefix -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
+addAccFormula p target_pr target_spr (ds, r, p1_, p2_) br
    = addFormulas p toAdd newBr
      where
       toAdd = transApplications ++ boxApplications
       transApplications =
        if isTransitive (relInfo br) r
-        then map (\(f,ds2) -> PrFormula p2 1 (dsUnion ds ds2) (Box r f)) toSendFwd
+        then map (\(f,ds2) -> PrFormula target_pr target_spr (dsUnion ds ds2) (Box r f)) toSendFwd
         else []
-      boxApplications = map (\(f,ds2) -> PrFormula p2 1 (dsUnion ds ds2) f) toSendFwd
+      boxApplications = map (\(f,ds2) -> PrFormula target_pr target_spr (dsUnion ds ds2) f) toSendFwd
       p1 = getUrfather br (DS.Prefix p1_)
       p2 = getUrfather br (DS.Prefix p2_)
       toSendFwd = get [] r $ iget Map.empty p1 (boxFwd br)
@@ -539,11 +539,15 @@ patternBlocked br f = not $ I.null $ I.filter lookForSuperset (patterns br)
 patternOf :: Branch -> PrFormula -> Set Formula
 patternOf br (PrFormula pr spr _ (Dia r f))
  = Set.insert f boxes
-    where ur = getUrfather br (DS.Prefix pr)
-          boxes = if isTransitive (relInfo br) r
-                   then boxesOf br ur r
-                          `Set.union` (Set.map (Box r) $ boxesOf br ur r)
-                   else boxesOf br ur r
+    where ur  = getUrfather br (DS.Prefix pr)
+          sur = getUrfather br (DS.Prefix spr)
+          boxes = if isTransitive (relInfo br) "R0"
+                   then boxesOf br target_node "R0"
+                          `Set.union` (Set.map (Box r) $ boxesOf br target_node "R0")
+                   else boxesOf br target_node "R0"
+          target_node = case r of
+            "R0"-> ur
+            "R1"-> sur
 
 patternOf _ _ = error "patternOf called with a non diamond formula"
 
@@ -610,8 +614,7 @@ initialBranch p fLang relInfo_ f
     where
           pf = firstPrefixedFormula f
           ns = languageNoms fLang
-          nbNs = length ns
-          initPrefixes = 0:[1..nbNs]
+          initPrefixes = [0,1]
           br = foldr addReflexiveLinks emptyBr initPrefixes
           initClasses = foldr (\(pr,n) -> DS.union (DS.Prefix pr) (DS.Nominal n))
                               DS.mkDSet
@@ -626,7 +629,7 @@ initialBranch p fLang relInfo_ f
                    boxFwd            = D.empty,
                    diaRlCh           = I.empty,
                    patterns          = I.empty,
-                   lastPref          = nbNs,
+                   lastPref          = 1,
                    nextNom           = 0,
                    prToDepSet        = I.empty,
                    brWitnesses       = I.empty,
