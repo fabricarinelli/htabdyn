@@ -41,7 +41,7 @@ import HTab.Literals ( UpdateResult(..), Literals,
 data BranchInfo = BranchOK Branch |
                   BranchClash Branch Prefix DependencySet Formula
 
-type BoxConstraints     = IntMap {- Prefix -} (Map Rel [(Formula,DependencySet)])
+type BoxConstraints     = IntMap {- Prefix -} (Map Rel [((Formula,Prefix),DependencySet)])
 type BranchingWitnesses = IntMap {- Prefix -} (Map Literal [PrFormula])
 type EquivClasses = DS.DisjSet DS.Pointer
 
@@ -181,7 +181,9 @@ putAwayFormula p pf@(PrFormula pr spr ds f2) br =
    Con fs     -> addFormulas p (prefix pr spr ds fs) br
    Dis _      -> putAwayDisjunction p pf br
    Dia _ _    -> BranchOK $ addToTodo pf br
-   Box r f    -> addBoxConstraint      pr spr r f ds p br
+   Box "R0" f -> addLBoxConstraint pr spr "R0" f ds p br
+   Box "R1" f -> addRBoxConstraint pr spr "R1" f ds p br
+   Box _ _ -> error("Syntaxis error on boxes") 
    Lit l | isPositiveNom l -> addToLiterals pr ds l $ addToTodo pf br
    Lit l | isLProp l   -> addToLiterals pr  ds l br
    Lit l | isRProp l  -> addToLiterals spr ds l br  
@@ -413,60 +415,57 @@ inSameClass br p n
 {-     box-related constraints     -}
 
 boxRule :: DependencySet
-            -> (Map Rel [(Formula,DependencySet)],
+            -> (Map Rel [((Formula,Prefix),DependencySet)],
                 Map Rel [(Prefix,DependencySet)] )
             -> [PrFormula]
 boxRule deps (mapBox, mapAcc)
- = [PrFormula p 1 (dsUnions [deps,ds1,ds2]) f |
+ = [PrFormula p inactive (dsUnions [deps,ds1,ds2]) f |
                       r1 <- Map.keys mapBox,
                       r2 <- Map.keys mapAcc,
                       r1 == r2,
-                      (f,ds1) <- (Map.!) mapBox r1,
+                      ((f,inactive),ds1) <- (Map.!) mapBox r1,
                       (p,ds2) <- (Map.!) mapAcc r2     ]
 
-addBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
+addLBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
                      -> BranchInfo
-addBoxConstraint pr_ spr r f ds p br
+addLBoxConstraint pr_ spr_ r f ds p br
  | boxAlreadyDone br pr spr (r,f) = BranchOK br
- | otherwise = case r of
-    "R0"->
-      let newBr = br{boxFwd = updateBoxConstr pr "R0" f ds (boxFwd br)}
+ | otherwise =
+      let newBr = br{boxFwd = updateBoxConstr pr spr "R0" f ds (boxFwd br)}
           succs = get [] "R0" $ successors (accStr br) pr
-          toAdd = fromTrans ++ fromBox
-          fromTrans
-           = if isTransitive (relInfo br) "R0"
-              then map (\(pr2,ds2) -> PrFormula pr2 spr (dsUnion ds ds2) (Box r f)) succs
-              else []
           fromBox = map (\(pr2,ds2) -> PrFormula pr2 spr (dsUnion ds ds2) f) succs
-    -- todo check again with new pattern, create successor if new pattern not realized
       in
-         addFormulas p toAdd newBr
-    "R1"->
-      let newBr = br{boxFwd = updateBoxConstr spr "R0" f ds (boxFwd br)}
-          succs = get [] "R0" $ successors (accStr br) spr
-          toAdd = fromTrans ++ fromBox
-          fromTrans
-           = if isTransitive (relInfo br) "R0"
-              then map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) (Box r f)) succs
-              else []
-          fromBox = map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) f) succs
-    -- todo check again with new pattern, create successor if new pattern not realized
-      in
-         addFormulas p toAdd newBr
-    _ -> error "Syntaxis error on boxes"
- where pr = getUrfather br (DS.Prefix pr_)
+         addFormulas p fromBox newBr
+ where 
+  pr = getUrfather br (DS.Prefix pr_)
+  spr = getUrfather br (DS.Prefix spr_)
 
-updateBoxConstr :: Prefix -> Rel -> Formula -> DependencySet -> BoxConstraints
+addRBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
+                     -> BranchInfo
+addRBoxConstraint pr_ spr_ r f ds p br
+ | boxAlreadyDone br pr spr (r,f) = BranchOK br
+ | otherwise =
+      let newBr = br{boxFwd = updateBoxConstr spr pr "R1" f ds (boxFwd br)}
+          succs = get [] "R0" $ successors (accStr br) spr
+          fromBox = map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) f) succs
+      in
+         addFormulas p fromBox newBr
+ where 
+  pr = getUrfather br (DS.Prefix pr_)
+  spr = getUrfather br (DS.Prefix spr_)
+
+
+updateBoxConstr :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> BoxConstraints
                     -> BoxConstraints
-updateBoxConstr p1_ r_ f_ ds_ boxConstr_ =
+updateBoxConstr p1_ inactivePrefix_ r_ f_ ds_ boxConstr_ =
   case I.lookup p1_ boxConstr_ of
-    Nothing       -> I.insert p1_ (Map.singleton r_ [(f_,ds_)]) boxConstr_
+    Nothing       -> I.insert p1_ (Map.singleton r_ [((f_,inactivePrefix_),ds_)]) boxConstr_
     Just innerMap ->
        case Map.lookup r_ innerMap of
         Nothing
-         -> I.insert p1_ (Map.insert r_ [(f_,ds_)] innerMap)                boxConstr_
+         -> I.insert p1_ (Map.insert r_ [((f_,inactivePrefix_),ds_)] innerMap)                boxConstr_
         Just innerInnerList
-         -> I.insert p1_ (Map.insert r_ ((f_,ds_):innerInnerList) innerMap) boxConstr_
+         -> I.insert p1_ (Map.insert r_ (((f_,inactivePrefix_),ds_):innerInnerList) innerMap) boxConstr_
 
 boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Rel,Formula) -> Bool
 boxAlreadyDone br ur sur (r,f)
@@ -475,43 +474,25 @@ boxAlreadyDone br ur sur (r,f)
                         "R1" -> sur
                         _    -> error "Syntaxis error on boxes"
   in case ( do  inner <- I.lookup targetNode (boxFwd br)
-                boxes <- map (\(e,_) -> e) <$> Map.lookup r inner 
+                boxes <- map (\((e,_),_) -> e) <$> Map.lookup r inner 
                 return (f `elem` boxes) ) of
       Just True -> True
       _         -> False
 
 -- accessibility Formulas
 
-addAccFormula :: Params -> Prefix -> Prefix -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
-addAccFormula p target_pr target_spr (ds, r, p1_, p2_) br
-   = addFormulas p toAdd newBr
+addAccFormula :: Params -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
+addAccFormula p (ds, r, p1_, p2_) br
+   = addFormulas p boxApplications newBr
      where
-      toAdd = transApplications ++ boxApplications
-      transApplications =
-       if isTransitive (relInfo br) r
-        then map (\(f,ds2) -> PrFormula target_pr target_spr (dsUnion ds ds2) (Box r f)) toSendFwd
-        else []
-      boxApplications = map (\(f,ds2) -> PrFormula target_pr target_spr (dsUnion ds ds2) f) toSendFwd
       p1 = getUrfather br (DS.Prefix p1_)
       p2 = getUrfather br (DS.Prefix p2_)
       toSendFwd = get [] r $ iget Map.empty p1 (boxFwd br)
-      newBr = scheduleInclusionRule p1 p2 r ds $ insertRelationBranch br p1 r p2 ds
+      boxApplications = case r of
+        "R0"-> map (\((f, inactivePrefix), ds2) -> PrFormula p2 inactivePrefix (dsUnion ds ds2) f) toSendFwd
+        "R1"-> map (\((f, inactivePrefix), ds2) -> PrFormula inactivePrefix p2 (dsUnion ds ds2) f) toSendFwd
+      newBr = insertRelationBranch br p1 "R0" p2 ds
 
-
-scheduleInclusionRule :: Prefix -> Prefix -> Rel -> DependencySet -> Branch -> Branch
-scheduleInclusionRule p1 p2 r ds br -- todo get all included
- = if null toschedule
-    then br
-    else br{todoList = newTodoList}
-   where parentss = case Map.lookup r (relInfo br) of
-                      Nothing -> []
-                      Just props -> [ rs | SubsetOf rs <- props]
-         toschedule = map (\parents -> (ds,p1,p2,parents)) $ filter (not . alreadyDone)
-                          parentss
-         alreadyDone = any (`elem` linksFromTo (accStr br) p1 p2)
-         utodo       = todoList br
-         newTodoList = utodo{roleIncTodo = Set.fromList toschedule
-                                           `Set.union` roleIncTodo utodo}
 
 insertRelationBranch :: Branch -> Prefix -> Rel -> Prefix -> DependencySet -> Branch
 insertRelationBranch br p1 r p2 ds
@@ -542,9 +523,9 @@ patternOf br (PrFormula pr spr _ (Dia r f))
     where ur  = getUrfather br (DS.Prefix pr)
           sur = getUrfather br (DS.Prefix spr)
           boxes = if isTransitive (relInfo br) "R0"
-                   then boxesOf br target_node "R0"
-                          `Set.union` (Set.map (Box r) $ boxesOf br target_node "R0")
-                   else boxesOf br target_node "R0"
+                   then boxesOf br target_node r
+                          `Set.union` (Set.map (Box r) $ boxesOf br target_node r)
+                   else boxesOf br target_node r
           target_node = case r of
             "R0"-> ur
             "R1"-> sur
@@ -553,7 +534,7 @@ patternOf _ _ = error "patternOf called with a non diamond formula"
 
 boxesOf :: Branch -> Prefix -> Rel -> Set Formula
 boxesOf br p r
- = set $ map (\(e,_) -> e) $ get [] r $ iget Map.empty p (boxFwd br)
+ = set $ map (\((e,_),_) -> e) $ get [] r $ iget Map.empty p (boxFwd br)
 
 findByPattern :: Branch -> Set Formula -> Prefix
 findByPattern br pattern =

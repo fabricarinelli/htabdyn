@@ -167,24 +167,24 @@ applyRule p rule br g
                 tryAllPrefixes = map reusePrefix $ filter (isNominalUrfather br) [0..lastPref br]
                 reusePrefix pr' = case r of
                   "R0" ->
-                    addAccFormula p pr' spr (dsInsert d (dsUnion ds ds2), "R0", ur, pr') br >>?
+                    addAccFormula p (dsInsert d (dsUnion ds ds2), r, ur, pr') br >>?
                     addFormulas p [PrFormula pr' spr (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
                   "R1" ->
-                    addAccFormula p pr pr' (dsInsert d (dsUnion ds sds2), "R0", sur, pr') br >>?
+                    addAccFormula p (dsInsert d (dsUnion ds sds2), r, sur, pr') br >>?
                     addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
                   _ -> error "Syntaxis error on diamonds"
                 properNewBranch = case r of
                   "R0" ->
                     [ createNewNode p br >>?
-                      addAccFormula p newPr spr (depsL, "R0", ur, newPr) >>?
+                      addAccFormula p (depsL, r, ur, newPr) >>?
                       addFormulas p [PrFormula newPr spr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
                   "R1" ->
                     [ createNewNode p br >>?
-                      addAccFormula p pr newPr (depsR, "R0", sur, newPr) >>?
+                      addAccFormula p (depsR, r, sur, newPr) >>?
                       addFormulas p [PrFormula pr newPr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
