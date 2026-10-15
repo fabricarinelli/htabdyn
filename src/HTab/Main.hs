@@ -17,7 +17,7 @@ import Prelude hiding ( readFile )
 
 import HyLo.InputFile.Parser ( QueryType(..) )
 
-import HTab.CommandLine( filename, random, seed, test_translations,
+import HTab.CommandLine( filename, random, seed,
                          timeout, Params, genModel, dotModel, showFormula )
 import HTab.Branch( BranchInfo(..), initialBranch)
 import HTab.Statistics( Statistics, initialStatisticsStateFor, printOutMetricsFinal )

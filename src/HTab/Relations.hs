@@ -1,69 +1,67 @@
 module HTab.Relations
 
 ( OutRels, emptyRels, insertRelation, mergePrefixes,
-  successors, allRels, null, linksFromTo,
-  showRels )
+  successors, allRels, null,
+  showRels, mergeInnerLists )
 
 where
 
 import qualified Data.IntMap as I
 import Data.IntMap ( IntMap )
-import qualified Data.Map as M
 import Data.Map ( Map )
 
 import qualified Data.List as List
 
-import qualified HTab.DMap as D
-import HTab.DMap ( DMap )
-
-import HTab.Formula (Prefix, Rel, DependencySet, dsShow )
+import HTab.Formula (Prefix, Rel, DependencySet, dsShow, dsUnion )
 import Prelude hiding (id, pred, succ, null)
 
-type OutRels = DMap {- Prefix Rel -} [(Prefix,DependencySet)]
+type OutRels = IntMap {- Prefix -} [(Prefix,DependencySet)]
 
 emptyRels :: OutRels
-emptyRels = D.empty
+emptyRels = I.empty
 
 null :: OutRels -> Bool
 null = I.null
 
 allRels :: OutRels -> [(Prefix,Rel,Prefix)]
-allRels rels = [ (p1,r,p2) | (p1,r,ds_out_s) <-  D.flatten rels,
+allRels rels = [ (p1,"R",p2) | (p1,ds_out_s) <-  I.toList rels,
                              (p2,_) <- ds_out_s ]
 
-linksFromTo :: OutRels -> Prefix -> Prefix -> [Rel]
-linksFromTo rels p1 p2
-  = List.nub [ r | (pa,r,pb) <- allRels rels, pa == p1, pb == p2]
-
-successors :: OutRels -> Prefix -> Map Rel [(Prefix,DependencySet)]
-successors rels p = I.findWithDefault M.empty p rels
+successors :: OutRels -> Prefix -> [(Prefix,DependencySet)]
+successors rels p = I.findWithDefault [] p rels
 
 -- assumes you never add twice the same relation
-insertRelation :: OutRels -> Prefix -> Rel -> Prefix -> DependencySet -> OutRels
-insertRelation rels p1 r p2 ds =
-  case I.lookup p1 rels of
-      Nothing       -> I.insert p1 (M.singleton r [(p2,ds)]) rels
-      Just inner
-        -> case M.lookup r inner of
-             Nothing        -> I.insert p1 (M.insert r [(p2,ds)] inner)           rels
-             Just innerList -> I.insert p1 (M.insert r ((p2,ds):innerList) inner) rels
+insertRelation :: OutRels -> Prefix -> Prefix -> DependencySet -> OutRels
+insertRelation rels p1 p2 ds = I.insertWith (++) p1 [(p2,ds)] rels
 
 
 mergePrefixes :: OutRels -> Prefix -> Prefix -> DependencySet -> OutRels
 mergePrefixes r pr ur _ | pr == ur = r
-mergePrefixes r pr ur ds = D.moveInnerPlusDeps ds r pr ur
+mergePrefixes r pr ur ds = mergeInnerLists ds r pr ur
 
 showRels :: OutRels -> String
-showRels r = prettyShowMap_ r (\v -> "(" ++ prettyShowMap_rel_bps_x v ++ ")") "\n "
+showRels r = prettyShowMap_ r (\v -> "(" ++ prettyShowMap_bps_x v ++ ")") "\n "
 
 prettyShowMap_ :: (Show y) => IntMap y -> (y -> String) -> String -> String
 prettyShowMap_ m valueShow separator
  = List.intercalate separator $ map (\(k,v) -> show k ++ " -> " ++ valueShow v)
           $ I.toList m
 
-prettyShowMap_rel_bps_x :: (Show a) => Map Rel [(a,DependencySet)] -> String
-prettyShowMap_rel_bps_x m
- = List.intercalate ", "
-      $ map (\(r,x_bp_s) -> (++) ("-" ++ r ++ "-> ") $ List.intercalate ", "
-                  $ map (\(x,bp) -> show x ++ " " ++ dsShow bp) x_bp_s )
-      $ M.toList m
+prettyShowMap_bps_x :: (Show a) => [(a,DependencySet)] -> String
+prettyShowMap_bps_x m
+ = "-R-> " ++ List.intercalate ", " (map (\(x,bp) -> show x ++ " " ++ dsShow bp) m)
+
+-- provided two keys of the IntMap and a merge function, 
+-- merge the list of both keys
+-- delete the first list from the IntMap
+-- and add the given dependencies
+mergeInnerLists :: DependencySet -> IntMap[(c,DependencySet)] -> Int -> Int
+                        -> IntMap [(c,DependencySet)]
+mergeInnerLists newDeps m origKey destKey
+ = case I.lookup origKey m of
+     Nothing  -> m
+     Just origList
+        -> let newList = map (\(c, oldDeps)->(c, dsUnion newDeps oldDeps )) origList
+               prunedM = I.delete origKey m
+            in I.insertWith (++) destKey newList prunedM
+

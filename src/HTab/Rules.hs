@@ -21,18 +21,16 @@ import HTab.Branch( Branch(..), BranchInfo(..), TodoList(..),
                     createNewNode, createNewNom,
                     addFormulas, addAccFormula,
                     addDiaRuleCheck, addToBlockedDias,
-                    doLazyBranching,
                     getUrfatherAndDeps, merge,
                     isNominalUrfather, positiveNomOf,
                     -- for choosing rule in todo list
                     patternBlocked,
                     diaAlreadyDone,
                     -- for rules and choosing rule in todo list
-                    reduceDisjunctionProposeLazy, getUrfather,
-                    ReducedDisjunct(..)
+                    getUrfather,
                     )
-import HTab.CommandLine(Params, UnitProp(..),
-                        lazyBranching, semBranch, unitProp,
+import HTab.CommandLine(Params,
+                        semBranch,
                         strategy, minimal, patternBlocking)
 import qualified HTab.CommandLine as CL ( random )
 import HTab.RuleId(RuleId(..))
@@ -41,14 +39,10 @@ import qualified HTab.DisjSet as DS
 -- rule constructors contain the data needed to modify a branch
 
 data Rule =  DiaRule    PrFormula Dependency      -- creates a prefix
-           | ExistRule  PrFormula Dependency      -- creates a prefix
            | DisjRule   PrFormula [PrFormula]
            | SemBrRule  PrFormula [PrFormula]
-           | LazyBrRule PrFormula Prefix Literal [PrFormula]
            | DiscardDiaDoneRule PrFormula
            | DiscardDiaBlockedRule PrFormula
-           | DiscardDisjTrivialRule PrFormula
-           | ClashDisjRule DependencySet PrFormula
            | MergeRule Prefix Nom DependencySet
 
 
@@ -57,14 +51,10 @@ instance Show Rule where
    show (DiaRule   todelete _ )           = "diamond:            " ++ showLess todelete
    show (DisjRule  todelete _ )           = "disjunction:        " ++ showLess todelete
    show (SemBrRule todelete _ )           = "semantic branching: " ++ showLess todelete
-   show (ExistRule todelete _ )           = "E:                  " ++ showLess todelete
 
    show (DiscardDiaDoneRule todelete)     = "Discard done:       " ++ showLess todelete
    show (DiscardDiaBlockedRule todelete)  = "Discard blocked:    " ++ showLess todelete
-   show (DiscardDisjTrivialRule todelete) = "Discard trivial:    " ++ showLess todelete
 
-   show (ClashDisjRule bprs f)     = "Clash:              " ++ show bprs ++ " " ++ show f
-   show (LazyBrRule todelete _ _ _)= "Lazy Branch "         ++ showLess todelete
 
 --
 ruleToId :: Rule -> RuleId
@@ -75,9 +65,6 @@ ruleToId r = case r of
               (SemBrRule _ _)    -> R_SemBr
               (DiscardDiaDoneRule _)     -> R_DiscardDiaDone
               (DiscardDiaBlockedRule _)  -> R_DiscardDiaBlocked
-              (DiscardDisjTrivialRule _) -> R_DiscardDisjTrivial
-              (ClashDisjRule _ _)      -> R_ClashDisj
-              (LazyBrRule _ _ _ _)     -> R_LazyBranch
 
 -- the rules application strategy is defined here:
 -- the first rule is the one that will be applied at the next tableau step
@@ -108,50 +95,16 @@ ruleByChar br p d g char =
   applicableMergeRule  = do ((ds,pr,n),new) <- Set.minView $ mergeTodo todos
                             return (MergeRule pr n ds, todos{mergeTodo = new}, g)
   applicableDisjRule
-   = case unitProp p of
-      Eager -> {- scan all disjuncts until one can be discarded,
-                  reduced to one disjunct or clashes -}
-          case mapMaybe (makeInteresting p br d) $ Set.toList $ disjTodo todos of
-            ((r,pf):_) -> return (r, todos{disjTodo = Set.delete pf $ disjTodo todos}, g)
-            [] -> regularApplicableDisjRule
-         -- todo: update counter (CurCount, MaxCount) step 10
-         -- to space out unit propagation lookup
-      _     ->  regularApplicableDisjRule
-  regularApplicableDisjRule
-      | not (CL.random p)
-          = do (f,new) <- Set.minView $ disjTodo todos
-               return (disjRule p f br d, todos{disjTodo = new}, g)
-      | otherwise
-          = if Set.null s then Nothing
-             else let (n, g') = randomR (0, Set.size s - 1) g
-                      f = Set.elemAt n s  -- pick formula
-                      new = Set.deleteAt n s -- remove from Set
-                  in  Just (disjRule p f br d, todos{disjTodo = new}, g')
-           where s = disjTodo todos
-
-makeInteresting :: Params -> Branch -> Dependency -> PrFormula ->  Maybe (Rule,PrFormula)
-makeInteresting p br d df@(PrFormula pr spr ds (Dis fs))
- = case reduceDisjunctionProposeLazy br pr fs of
-          Triviality               -> Just (DiscardDisjTrivialRule df,df)
-          Contradiction ds_clash   -> Just (ClashDisjRule (dsUnion ds ds_clash) df,df)
-          Reduced new_ds disjuncts mProposed
-           | Set.size disjuncts == 1
-              -> Just (DisjRule df ( prefix spr ur newDeps disjuncts ), df)
-           | lazyBranching p
-              -> case mProposed of
-                  Nothing  -> Nothing
-                  Just lit
-                   -> Just (LazyBrRule df ur lit [PrFormula ur spr newDeps (Dis disjuncts)],
-                            df)
-           | otherwise  -> Nothing
-             where newDeps = dsInsert d $ dsUnion ds new_ds
-                   ur = getUrfather br (DS.Prefix pr)
-           -- TODO should not insert d if the formula was actually not changed
-              -- --> reduceDisjunctionProposeLazy should return a boolean
-              -- -->  or have a constructor "Unchanged" ?
-
-makeInteresting _ _ _ _ = error "makeInteresting on a non disjunction"
-
+    | not (CL.random p)
+        = do (f, new) <- Set.minView $ disjTodo todos
+             return (disjRule p f br d, todos {disjTodo = new}, g)
+    | otherwise
+        = if Set.null s then Nothing
+            else let (n, g') = randomR (0, Set.size s - 1) g
+                     f = Set.elemAt n s  -- pick formula
+                     new = Set.deleteAt n s -- remove from Set
+                in  Just (disjRule p f br d, todos{disjTodo = new}, g')
+          where s = disjTodo todos
 
 (>>?) :: BranchInfo -> (Branch -> BranchInfo) -> BranchInfo
 clash@(BranchClash _ _ _ _) >>? _ = clash
@@ -167,24 +120,24 @@ applyRule p rule br g
                 tryAllPrefixes = map reusePrefix $ filter (isNominalUrfather br) [0..lastPref br]
                 reusePrefix pr' = case r of
                   "R0" ->
-                    addAccFormula p (dsInsert d (dsUnion ds ds2), r, ur, pr') br >>?
+                    addAccFormula p (dsInsert d (dsUnion ds ds2), ur, pr') br >>?
                     addFormulas p [PrFormula pr' spr (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
                   "R1" ->
-                    addAccFormula p (dsInsert d (dsUnion ds sds2), r, sur, pr') br >>?
+                    addAccFormula p (dsInsert d (dsUnion ds sds2), sur, pr') br >>?
                     addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
                     addDiaRuleCheck pr spr (r,f) pr'
                   _ -> error "Syntaxis error on diamonds"
                 properNewBranch = case r of
                   "R0" ->
                     [ createNewNode p br >>?
-                      addAccFormula p (depsL, r, ur, newPr) >>?
+                      addAccFormula p (depsL, ur, newPr) >>?
                       addFormulas p [PrFormula newPr spr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
                   "R1" ->
                     [ createNewNode p br >>?
-                      addAccFormula p (depsR, r, sur, newPr) >>?
+                      addAccFormula p (depsR, sur, newPr) >>?
                       addFormulas p [PrFormula pr newPr ds f] >>?
                       addDiaRuleCheck pr spr (r,f) newPr
                     ]
@@ -206,25 +159,15 @@ applyRule p rule br g
               choices = [ addFormulas p toadds br |  toadds <- go prFormulas [] ]
               go (hd:tl) negs = (hd:negs):(go tl (negPr hd:negs))
               go [] _ = []
-    LazyBrRule _ pr lit prFormulas ->
-            ([ doLazyBranching pr lit prFormulas br ], g)
     DiscardDiaDoneRule _      -> ([BranchOK br], g)
-    DiscardDisjTrivialRule _  -> ([BranchOK br], g)
     DiscardDiaBlockedRule f   -> ([addToBlockedDias f br], g)
 
-    ClashDisjRule ds (PrFormula pr spr ds2 f) -> ([BranchClash br pr (dsUnion ds ds2) f], g)
     MergeRule pr n ds -> ([merge p pr ds n br], g)
     _ -> error $ "applyRule with bad argument: " ++ show rule
 
 disjRule :: Params -> PrFormula -> Branch -> Dependency -> Rule
 disjRule p df@(PrFormula pr spr ds (Dis fs)) br d
-  = if unitProp p == UPNo
-     then rule df $ prefix pr spr (dsInsert d ds) fs
-     else case reduceDisjunctionProposeLazy br pr fs of
-             Triviality               -> DiscardDisjTrivialRule df
-             Contradiction ds_clash   -> ClashDisjRule (dsUnion ds ds_clash) df
-             Reduced new_ds disjuncts _
-               -> rule df (prefix pr spr (dsInsert d $ dsUnion ds new_ds) disjuncts)
+  = rule df $ prefix pr spr (dsInsert d ds) fs
     where rule = if semBranch p then SemBrRule else DisjRule
 -- todo: if only one conjunct remaining, do not add d , but still create a DisjRule
 disjRule _ _ _ _ = error "disjRule"

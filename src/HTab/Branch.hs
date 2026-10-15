@@ -6,16 +6,13 @@ addFormulas, addAccFormula,
 addToBlockedDias,
 addDiaRuleCheck,
 initialBranch,
-reduceDisjunctionProposeLazy, doLazyBranching,
 merge,
 getUrfather, getUrfatherAndDeps,
 getModelRepresentative, patternBlocked,
 diaAlreadyDone,
-ReducedDisjunct(..),
 patternOf, findByPattern,
 prefixes, isNominalUrfather, isInTheModel,
-positiveNomOf,
-isTransitive
+positiveNomOf
 ) where
 
 import Data.Maybe( mapMaybe )
@@ -32,7 +29,7 @@ import qualified HTab.DisjSet as DS
 import HTab.CommandLine(Params(..))
 import HTab.Formula hiding ( list )
 import HTab.Relations ( OutRels, emptyRels, insertRelation, mergePrefixes,
-                        successors, linksFromTo, showRels )
+                        successors, showRels, mergeInnerLists )
 import HTab.Literals ( UpdateResult(..), Literals,
                        SlotUpdateResult(..), LiteralSlot,
                        updateMap, lsUnions, lsAddDeps, lsQuery,
@@ -41,8 +38,7 @@ import HTab.Literals ( UpdateResult(..), Literals,
 data BranchInfo = BranchOK Branch |
                   BranchClash Branch Prefix DependencySet Formula
 
-type BoxConstraints     = IntMap {- Prefix -} (Map Rel [((Formula,Prefix),DependencySet)])
-type BranchingWitnesses = IntMap {- Prefix -} (Map Literal [PrFormula])
+type BoxConstraints     = IntMap {- Prefix -} [((Formula,Prefix,Rel),DependencySet)]
 type EquivClasses = DS.DisjSet DS.Pointer
 
 data Branch =
@@ -65,8 +61,6 @@ data Branch =
                  -- book keeping
                       lastPref :: Prefix,
                        nextNom :: Int,
-                 -- lazy branching
-                   brWitnesses :: BranchingWitnesses,
                  -- information about language of input formula and blocking mode
                  inputLanguage :: LanguageInfo,
                    blockedDias :: IntMap {- Prefix -} [PrFormula],
@@ -81,8 +75,6 @@ instance Show Branch where
      "\nRelations: ", showRels (accStr br),
      "\nBoxes: ", showIMap (\v -> "(" ++ showMap_rel v ++ ")") "\n " (boxFwd br),
      "\n", showTodo (todoList br),
-     "\nWitnesses: ",
-     showIMap (\v -> "(" ++ showMap_lits2 v ++ ")") "\n " (brWitnesses br),
      "\nDia rule chart: ", show (diaRlCh br),
      "\nIndividual patterns: ", show (patterns br),
      "\nPrefix to dependency set: ", showIMap  dsShow "\n " (prToDepSet br),
@@ -97,17 +89,10 @@ instance Show Branch where
      = I.foldrWithKey (\k v -> (++ sep ++ show k ++ " -> " ++ vShow v )) "" im
     showMap sep = Map.foldrWithKey (\k v -> (++ sep ++ show k ++ " -> " ++ show v )) ""
     showMap_lits ml = Map.foldrWithKey (\l d -> (++ show l ++ " " ++ dsShow d  ++ ", ")) "" ml
-    showMap_lits2 = Map.foldrWithKey (\l fs -> (++ show l ++ " :" ++ show fs ++ ", ")) ""
-    showMap_rel
-     = Map.foldrWithKey (\r dxs -> (++ "-" ++ r ++ "-> " ++ show dxs ++ ", ")) ""
-
+    showMap_rel bxList = concatMap (\((f,pr,r),ds) -> "-" ++ r ++ "-> " ++ show f ++ ", ") bxList
 data TodoList= TodoList{disjTodo :: Set PrFormula,
                          diaTodo :: Set PrFormula,
-                       existTodo :: Set PrFormula,
-                          atTodo :: Set PrFormula,
-                        downTodo :: Set PrFormula,
-                       mergeTodo :: Set (DependencySet, Prefix, Nom),
-                     roleIncTodo :: Set (DependencySet, Prefix, Prefix, [Rel]) }
+                       mergeTodo :: Set (DependencySet, Prefix, Nom)}
 
 showTodo :: TodoList -> String
 showTodo t = unlines
@@ -140,92 +125,24 @@ addFormula p br pf
 
 bookKeepFormula :: Params -> PrFormula -> Branch -> Branch
 bookKeepFormula p pf_@(PrFormula pr spr ds f) br
- =   rescheduleLazyBranching  p pf
-   $ rescheduleBlockedDias    ur br
+ =   rescheduleBlockedDias    ur br
   where
    (ur,ds2,_) = getUrfatherAndDeps br (DS.Prefix pr)
    pf = if ur == pr then pf_
          else PrFormula ur spr (dsUnion ds ds2) f
-
-rescheduleLazyBranching :: Params -> PrFormula -> Branch -> Branch
-rescheduleLazyBranching p (PrFormula pr spr ds (Lit l)) br   -- pr already urfather
- | lazyBranching p && isProp l
-   =
-     let (Just innerMap) = I.lookup pr (brWitnesses br)
-     in
-
-     case D.lookup pr l (brWitnesses br) of
-      Just _
-        -> let innerMap2 = Map.delete l innerMap
-               newBrW    = I.insert pr innerMap2 (brWitnesses br)
-               newBr     = br{brWitnesses = newBrW}
-           in
-            newBr -- forget  the disjunctions, they are really satisfied
-      Nothing
-       -> case D.lookup pr (negLit l) (brWitnesses br) of
-           Just fs
-             -> let innerMap2 = Map.delete (negLit l) innerMap
-                    newBrW    = I.insert pr innerMap2 (brWitnesses br)
-                    newBr     = br{brWitnesses = newBrW}
-                in
-                 foldr addToTodo newBr (map (addDeps ds) fs) --reschedule
-           Nothing
-            -> br -- do nothing
-
-rescheduleLazyBranching _ _ br = br
 
 
 putAwayFormula :: Params -> PrFormula -> Branch -> BranchInfo
 putAwayFormula p pf@(PrFormula pr spr ds f2) br =
  case f2 of
    Con fs     -> addFormulas p (prefix pr spr ds fs) br
-   Dis _      -> putAwayDisjunction p pf br
+   Dis _      -> BranchOK $ addToTodo pf br
    Dia _ _    -> BranchOK $ addToTodo pf br
-   Box "R0" f -> addLBoxConstraint pr spr "R0" f ds p br
-   Box "R1" f -> addRBoxConstraint pr spr "R1" f ds p br
-   Box _ _ -> error("Syntaxis error on boxes") 
+   Box r f -> addBoxConstraint pr spr r f ds p br
    Lit l | isPositiveNom l -> addToLiterals pr ds l $ addToTodo pf br
    Lit l | isLProp l   -> addToLiterals pr  ds l br
    Lit l | isRProp l  -> addToLiterals spr ds l br  
    Lit l                   -> addToLiterals pr ds l br
-
-putAwayDisjunction :: Params -> PrFormula -> Branch -> BranchInfo
-putAwayDisjunction p pf@(PrFormula pr spr ds f@(Dis fs)) br
- | lazyBranching p
-  = case reduceDisjunctionProposeLazy br pr fs of
-     Contradiction dsClash -> BranchClash br pr (dsUnion ds dsClash) f
-     Triviality -> BranchOK br
-     Reduced new_ds disjuncts mProposed
-      -> let fNew = PrFormula pr spr (dsUnion ds new_ds) (Dis disjuncts)
-              -- TODO if there was no reduction, leave ds
-         in
-          case mProposed of
-            Nothing -> BranchOK $ addToTodo fNew br
-            Just lit -- add pr, lit, ((++) disjuncts) aux witnesses
-             -> doLazyBranching ur lit [fNew] br
- | otherwise
-  = BranchOK $ addToTodo pf br
- where ur = getUrfather br (DS.Prefix pr)
-
-putAwayDisjunction _ pf _ = error ("putAwayDisjunction " ++ show pf)
-
--- assume the tests have been done beforehand, always returns BranchOK
-doLazyBranching :: Prefix -> Literal -> [PrFormula] -> Branch -> BranchInfo
-doLazyBranching pr lit pfs br
- = case I.lookup pr (brWitnesses br) of
-    Nothing -> let newBrW = D.insert pr lit pfs (brWitnesses br)
-               in BranchOK br{brWitnesses = newBrW}
-    Just innerMap
-     -> case Map.lookup lit innerMap of
-        -- assume this is the only place where l or (negLit l) occur
-         Nothing -> let newInner = Map.insert lit pfs innerMap
-                        newBrW = I.insert pr newInner (brWitnesses br)
-                    in BranchOK br{brWitnesses = newBrW}
-         Just fs -- assume the test was already done
-          -> let newInner = Map.insert lit (pfs++fs) innerMap
-                 newBrW = I.insert pr newInner (brWitnesses br)
-             in BranchOK br{brWitnesses = newBrW}
-
 
 -- TODO
 -- when doing a merge, do all the witness checks!
@@ -302,18 +219,17 @@ merge p pr fDs n br
               newLiterals = I.delete oldUr $ I.insert newUr slot $ literals br
 
               -- structures that merge
-              newBoxFwd       = D.moveInnerPlusDeps fDs (boxFwd br) oldUr newUr
+              newBoxFwd       = mergeInnerLists fDs (boxFwd br) oldUr newUr
               newAccStr       = mergePrefixes (accStr br) oldUr newUr fDs
               newDiaRlCh      = moveInMap (diaRlCh br)  oldUr newUr Set.union
               newBlockedDias  = moveInMap (blockedDias br) oldUr newUr (++)
-              (newBrWit,unwitnessed) = mergeWitnesses oldUr newUr slot (brWitnesses br)
 
               -- structures that combine
-              mapBoxFwd = map (\idx -> iget Map.empty idx (boxFwd br) ) [ur1,ur2]
+              mapBoxFwd = map (\idx -> iget [] idx (boxFwd br) ) [ur1,ur2]
               mapAccFwd = map (successors (accStr br)) [ur1,ur2]
               forms1    = concatMap (boxRule currentDeps) $ combine mapBoxFwd mapAccFwd
 
-              formulasToAdd = nubAndMergeDeps $ forms1 ++ unwitnessed
+              formulasToAdd = nubAndMergeDeps forms1
 
               newBr           = br{nomPrefClasses = classes3,
                                    boxFwd         = newBoxFwd,
@@ -321,45 +237,10 @@ merge p pr fDs n br
                                    prToDepSet     = newPrToDepSet,
                                    diaRlCh        = newDiaRlCh,
                                    blockedDias    = newBlockedDias,
-                                   literals       = newLiterals,
-                                   brWitnesses    = newBrWit}
+                                   literals       = newLiterals}
              in
               addFormulas p formulasToAdd newBr
 
-mergeWitnesses :: Prefix -> Prefix -> LiteralSlot -> BranchingWitnesses
-                   -> (BranchingWitnesses, [PrFormula])
-mergeWitnesses oldUr newUr urfatherSlot brWits
- =( I.insert newUr newDest2 ( I.delete oldUr brWits ), toAdd1 ++ toAdd2 )
-  where
-   srcInnerMap  = iget Map.empty oldUr brWits
-   destInnerMap = iget Map.empty newUr brWits
-   (newDest1,toAdd1) = mergeWitnessesWitnessesMap srcInnerMap destInnerMap
-   (newDest2,toAdd2) = mergeWitnessesAgainstLiterals newDest1 urfatherSlot
-
-mergeWitnessesWitnessesMap :: Map Literal [PrFormula] -> Map Literal [PrFormula]
-                               -> (Map Literal [PrFormula], [PrFormula])
-mergeWitnessesWitnessesMap srcWitMap destWitMap
- = foldr go (destWitMap,[]) $ Map.assocs srcWitMap
-   where
-      go (l,fs) (destMap,toAddAgain)
-         = case Map.lookup l destMap of
-            Just fs2 -> (Map.insert l (fs2++fs) destMap, toAddAgain)
-            Nothing
-             -> case Map.lookup (negLit l) destMap of
-       -- (negLit l) is just one bit away from l in the map, but we don't use it
-                  Just fs2 -> (Map.delete (negLit l) destMap, fs++fs2++toAddAgain)
-                  Nothing ->  (Map.insert l fs destMap, toAddAgain)
-
-mergeWitnessesAgainstLiterals :: Map Literal [PrFormula] -> LiteralSlot
-                                   -> (Map Literal [PrFormula],[PrFormula])
-mergeWitnessesAgainstLiterals  witMap ls
- = foldr go (witMap,[]) $ Map.assocs witMap
-   where
-    go (lit,fs) (destMap,toAddAgain)
-      | lit `Map.member` ls = (Map.delete lit destMap,toAddAgain)
-      | negLit lit `Map.member` ls = (Map.delete lit destMap,fs++toAddAgain)
-          -- same remark as above
-      | otherwise = (destMap,toAddAgain)
 
 nubAndMergeDeps :: [PrFormula] -> [PrFormula]
 -- Rationale : because of the equivalence classes, a same formula can be added
@@ -415,57 +296,37 @@ inSameClass br p n
 {-     box-related constraints     -}
 
 boxRule :: DependencySet
-            -> (Map Rel [((Formula,Prefix),DependencySet)],
-                Map Rel [(Prefix,DependencySet)] )
+            -> ([((Formula,Prefix,Rel),DependencySet)],
+               [(Prefix,DependencySet)]) 
             -> [PrFormula]
-boxRule deps (mapBox, mapAcc)
- = [PrFormula p inactive (dsUnions [deps,ds1,ds2]) f |
-                      r1 <- Map.keys mapBox,
-                      r2 <- Map.keys mapAcc,
-                      r1 == r2,
-                      ((f,inactive),ds1) <- (Map.!) mapBox r1,
-                      (p,ds2) <- (Map.!) mapAcc r2     ]
+boxRule deps (listBox, listAcc) 
+  = [buildFormula player p inactive f ds1 ds2
+    |((f,inactive, player),ds1) <- listBox,
+    (p,ds2) <- listAcc]
+    where
+      buildFormula :: Rel -> Prefix -> Prefix -> Formula -> DependencySet -> DependencySet -> PrFormula
+      buildFormula player p inactive f ds1 ds2 = case player of
+        "R0"-> PrFormula p inactive (dsUnions [deps,ds1,ds2]) f
+        "R1"-> PrFormula inactive p (dsUnions [deps,ds1,ds2]) f 
+        _   -> error("Syntaxis error on boxes")
 
-addLBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
+addBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
                      -> BranchInfo
-addLBoxConstraint pr_ spr_ r f ds p br
+addBoxConstraint pr_ spr_ r f ds p br
  | boxAlreadyDone br pr spr (r,f) = BranchOK br
- | otherwise =
-      let newBr = br{boxFwd = updateBoxConstr pr spr "R0" f ds (boxFwd br)}
-          succs = get [] "R0" $ successors (accStr br) pr
-          fromBox = map (\(pr2,ds2) -> PrFormula pr2 spr (dsUnion ds ds2) f) succs
+ | otherwise = 
+      let newBr = br{boxFwd = I.insert targetPr (((f, inactivePr, r), ds) : I.findWithDefault [] targetPr (boxFwd br)) (boxFwd br)}
+          succs = successors (accStr br) targetPr
+          fromBox = map (\(newNode,ds2) -> buildFormula newNode ds2) succs
       in
          addFormulas p fromBox newBr
- where 
+ where
+  (targetPr, inactivePr, buildFormula) = case r of 
+    "R0"->(pr, spr, \newNode ds2 -> PrFormula newNode spr (dsUnion ds ds2) f)
+    "R1"->(spr, pr, \newNode ds2 -> PrFormula pr newNode (dsUnion ds ds2) f)
+    _   ->error("Error in box sintaxis") 
   pr = getUrfather br (DS.Prefix pr_)
   spr = getUrfather br (DS.Prefix spr_)
-
-addRBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
-                     -> BranchInfo
-addRBoxConstraint pr_ spr_ r f ds p br
- | boxAlreadyDone br pr spr (r,f) = BranchOK br
- | otherwise =
-      let newBr = br{boxFwd = updateBoxConstr spr pr "R1" f ds (boxFwd br)}
-          succs = get [] "R0" $ successors (accStr br) spr
-          fromBox = map (\(pr2,ds2) -> PrFormula pr pr2 (dsUnion ds ds2) f) succs
-      in
-         addFormulas p fromBox newBr
- where 
-  pr = getUrfather br (DS.Prefix pr_)
-  spr = getUrfather br (DS.Prefix spr_)
-
-
-updateBoxConstr :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> BoxConstraints
-                    -> BoxConstraints
-updateBoxConstr p1_ inactivePrefix_ r_ f_ ds_ boxConstr_ =
-  case I.lookup p1_ boxConstr_ of
-    Nothing       -> I.insert p1_ (Map.singleton r_ [((f_,inactivePrefix_),ds_)]) boxConstr_
-    Just innerMap ->
-       case Map.lookup r_ innerMap of
-        Nothing
-         -> I.insert p1_ (Map.insert r_ [((f_,inactivePrefix_),ds_)] innerMap)                boxConstr_
-        Just innerInnerList
-         -> I.insert p1_ (Map.insert r_ (((f_,inactivePrefix_),ds_):innerInnerList) innerMap) boxConstr_
 
 boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Rel,Formula) -> Bool
 boxAlreadyDone br ur sur (r,f)
@@ -473,30 +334,29 @@ boxAlreadyDone br ur sur (r,f)
                         "R0" -> ur
                         "R1" -> sur
                         _    -> error "Syntaxis error on boxes"
-  in case ( do  inner <- I.lookup targetNode (boxFwd br)
-                boxes <- map (\((e,_),_) -> e) <$> Map.lookup r inner 
-                return (f `elem` boxes) ) of
-      Just True -> True
-      _         -> False
+  in case I.lookup targetNode (boxFwd br) of 
+    Nothing       -> False
+    Just boxList  -> any (\((fBox, _, rBox), _) -> fBox == f && rBox == r) boxList
 
 -- accessibility Formulas
 
-addAccFormula :: Params -> (DependencySet,Rel,Prefix,Prefix) -> Branch -> BranchInfo
-addAccFormula p (ds, r, p1_, p2_) br
+addAccFormula :: Params -> (DependencySet,Prefix,Prefix) -> Branch -> BranchInfo
+addAccFormula p (ds, p1_, p2_) br
    = addFormulas p boxApplications newBr
      where
       p1 = getUrfather br (DS.Prefix p1_)
       p2 = getUrfather br (DS.Prefix p2_)
-      toSendFwd = get [] r $ iget Map.empty p1 (boxFwd br)
-      boxApplications = case r of
-        "R0"-> map (\((f, inactivePrefix), ds2) -> PrFormula p2 inactivePrefix (dsUnion ds ds2) f) toSendFwd
-        "R1"-> map (\((f, inactivePrefix), ds2) -> PrFormula inactivePrefix p2 (dsUnion ds ds2) f) toSendFwd
-      newBr = insertRelationBranch br p1 "R0" p2 ds
+      boxesInNode = iget [] p1 (boxFwd br)
+      boxApplications = map (\((f, inactivePrefix, player), ds2) -> case player of
+        "R0"-> PrFormula p2 inactivePrefix (dsUnion ds ds2) f 
+        "R1"-> PrFormula inactivePrefix p2 (dsUnion ds ds2) f
+        _   -> error("Syntaxis error on boxes")) boxesInNode
+      newBr = insertRelationBranch br p1 p2 ds
 
 
-insertRelationBranch :: Branch -> Prefix -> Rel -> Prefix -> DependencySet -> Branch
-insertRelationBranch br p1 r p2 ds
- = br{accStr = insertRelation (accStr br) p1 r p2 ds}
+insertRelationBranch :: Branch -> Prefix -> Prefix -> DependencySet -> Branch
+insertRelationBranch br p1 p2 ds
+ = br{accStr = insertRelation (accStr br) p1 p2 ds}
 
 {- model building -}
 
@@ -522,10 +382,7 @@ patternOf br (PrFormula pr spr _ (Dia r f))
  = Set.insert f boxes
     where ur  = getUrfather br (DS.Prefix pr)
           sur = getUrfather br (DS.Prefix spr)
-          boxes = if isTransitive (relInfo br) "R0"
-                   then boxesOf br target_node r
-                          `Set.union` (Set.map (Box r) $ boxesOf br target_node r)
-                   else boxesOf br target_node r
+          boxes = boxesOf br target_node r
           target_node = case r of
             "R0"-> ur
             "R1"-> sur
@@ -534,7 +391,7 @@ patternOf _ _ = error "patternOf called with a non diamond formula"
 
 boxesOf :: Branch -> Prefix -> Rel -> Set Formula
 boxesOf br p r
- = set $ map (\((e,_),_) -> e) $ get [] r $ iget Map.empty p (boxFwd br)
+ = set $ map (\((e,_,_),_) -> e) $ iget [] p (boxFwd br)
 
 findByPattern :: Branch -> Set Formula -> Prefix
 findByPattern br pattern =
@@ -574,11 +431,6 @@ positiveNomOf b p = positiveNom (literals b) ur
 createNewNode :: Params -> Branch -> BranchInfo
 createNewNode _ br = BranchOK br{lastPref = lastPref br + 1}
 
-addReflexiveLinks :: Prefix -> Branch -> Branch
-addReflexiveLinks pr br
- = foldr (\rel_ br_ -> insertRelationBranch br_ pr rel_ pr dsEmpty) br reflRels
-   where reflRels = Map.keys $ Map.filter (elem Reflexive) (relInfo br)
-
 createNewNom :: Branch -> BranchInfo
 createNewNom br
  = BranchOK br{nextNom = nextNom br + 1}
@@ -596,7 +448,7 @@ initialBranch p fLang relInfo_ f
           pf = firstPrefixedFormula f
           ns = languageNoms fLang
           initPrefixes = [0,1]
-          br = foldr addReflexiveLinks emptyBr initPrefixes
+          br = emptyBr
           initClasses = foldr (\(pr,n) -> DS.union (DS.Prefix pr) (DS.Nominal n))
                               DS.mkDSet
                               (zip [1..] ns)
@@ -607,13 +459,12 @@ initialBranch p fLang relInfo_ f
            Branch{ literals          = initLiterals,
                    accStr            = emptyRels,
                    todoList          = emptyTodoList,
-                   boxFwd            = D.empty,
+                   boxFwd            = I.empty,
                    diaRlCh           = I.empty,
                    patterns          = I.empty,
                    lastPref          = 1,
                    nextNom           = 0,
                    prToDepSet        = I.empty,
-                   brWitnesses       = I.empty,
                    nomPrefClasses    = initClasses,
                    inputLanguage     = fLang,
                    blockedDias       = I.empty,
@@ -630,44 +481,6 @@ addToLiterals pr_ ds1 l br
 
 {-     function used for unit propagation     -}
 
-data ReducedDisjunct
- =   Triviality
-   | Contradiction DependencySet
-   | Reduced DependencySet (Set Formula) (Maybe Literal)
-               -- proposable witness for lazy branching
- deriving Show
-
-reduceDisjunctionProposeLazy :: Branch -> Prefix -> Set Formula -> ReducedDisjunct
-reduceDisjunctionProposeLazy br pr fs
- =  case Set.fold go (Just ( Set.empty , dsEmpty, Nothing )) fs of
-     Nothing -> Triviality
-     Just (disjuncts,ds,proposed)
-       | Set.null disjuncts -> Contradiction ds
-       | otherwise -> Reduced ds disjuncts proposed
-            -- what if not reduced ? and no proposed witness ?
-   where
-      ur = getUrfather br (DS.Prefix pr)
-      go _ Nothing = Nothing
-      go l@(Lit current) (Just (disjuncts,ds_,proposed))
-       = case (lsQuery (literals br) ur current, proposed) of
-          (Just (True,_)    ,_) -> Nothing
-          (Just (False,ds2) ,_) -> Just (disjuncts,dsUnion ds_ ds2, proposed)
-          (Nothing, Nothing)
-           -> if isPositiveNom current
-               then Just (Set.insert l disjuncts,ds_,Nothing)
-                    -- no lazy branching with positive nominals
-               else case D.lookup ur (negLit current) (brWitnesses br) of
-                      -- if current is a negated nominal,
-                      -- we know the "just" case is impossible
-                     Just _  -> Just (Set.insert l disjuncts,ds_,Nothing)
-                      -- there's an opposed witness
-                     Nothing -> Just (Set.insert l disjuncts,ds_, Just current)
-                      -- propose for witness
-          _ {- already a proposed witness -}
-           -> Just (Set.insert l disjuncts,ds_,proposed)
-      go f (Just (disjuncts,ds_,proposed)) = Just (Set.insert f disjuncts, ds_,proposed)
-
-
 {-     other functions     -}
 prefixes :: Branch -> [Prefix]
 prefixes br = [0..(lastPref br)]
@@ -677,8 +490,6 @@ hasProperty p relI r = case Map.lookup r relI of
                         Nothing         -> False
                         Just properties -> p `elem` properties
 
-isTransitive :: RelInfo -> Rel -> Bool
-isTransitive = hasProperty Transitive
 
 combine :: [a] -> [b] -> [(a,b)]
 combine [] _  = error "combine: first list empty"

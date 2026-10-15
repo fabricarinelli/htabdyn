@@ -108,26 +108,11 @@ parse p s
   = (theory, relInfo, fLang, tasks)
     where parseOutput = InputFile.myparse s       -- direct parse from hylolib
           pRelInfo    = P.relations parseOutput
-          relInfo     = if translate p
-                         then monomodal $ convertToOurType pRelInfo
-                         else forceProperties p parseOutput $ convertToOurType pRelInfo
+          relInfo     = convertToOurType pRelInfo
           theory      = convert relInfo $ P.theory parseOutput
           tasks       = P.tasks parseOutput
           fLang       = langInfo parseOutput
 
--- add properties specified by the --all-PROP parameters
--- in order to work in case of automatic signature
-
-forceProperties :: Params -> P.ParseOutput -> RelInfo -> RelInfo
-forceProperties p po relI
- = foldr addToAll relI (list rels)
-   where
-         rels = Set.map (\(S.RelSymbol r) -> up r) $ Set.unions $ map (relSymbols . getSignature) theory
-         addToAll r = Map.insertWith (\c1 c2 -> nub $ c1 ++ c2) r conds
-         conds = map snd $
-                   filter fst   [(allTransitive p, Transitive),
-                                 (allReflexive  p, Reflexive )]
-         theory =  P.theory po
 
 -- assume input formula is relation-changing
 -- then it is monomodal, only relation is R

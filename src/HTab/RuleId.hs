@@ -36,22 +36,13 @@ where
 import Control.DeepSeq ( NFData, rnf )
 
 data RuleId = R_Dia     -- Diamond <r>
-            | R_DiaX    -- DiamondX <r*>
             | R_Disj    -- Disjunction
             | R_SemBr   -- Semantic Branching
-            | R_NegNom  -- Negation before nominal rule
             | R_Discard -- Discarding a formula
-            | R_DiscardDown
             | R_DiscardDiaDone
             | R_DiscardDiaBlocked
-            | R_DiscardDiaSymBlocked
-            | R_DiscardDiaX
-            | R_DiscardDisjTrivial
             | R_ClashDisj -- Branch clash
-            | R_UBlocking -- Unrestricted Blocking
             | R_Merge   -- Equivalence classes merge
-            | R_RoleInc -- Role inclusion
-            | R_LazyBranch -- Lazy Branching
         deriving(Eq, Ord, Show)
 
 
