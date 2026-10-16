@@ -13,7 +13,7 @@ import Data.Maybe ( mapMaybe )
 
 import HTab.Formula( Formula(..), PrFormula(..), showLess,
                      Dependency, DependencySet, dsUnion, dsInsert,
-                     prefix, Rel, negPr,
+                     prefix, Player(..), negPr,
                      Prefix, Nom, Atom(..),
                      replaceVar, Literal(..))
 import HTab.Branch( Branch(..), BranchInfo(..), TodoList(..),
@@ -113,35 +113,25 @@ clash@(BranchClash _ _ _ _) >>? _ = clash
 applyRule :: Params -> Rule -> Branch -> StdGen -> ([BranchInfo], StdGen)
 applyRule p rule br g
  =  case rule of
-    DiaRule (PrFormula pr spr ds (Dia r f)) d -- here, if minimal, branch on all prefixes
+    DiaRule (PrFormula pr spr ds (Dia player f)) d -- here, if minimal, branch on all prefixes
      | minimal p -> if CL.random p then shuffle g choices else (choices, g)
      | otherwise -> (properNewBranch, g)
           where
                 tryAllPrefixes = map reusePrefix $ filter (isNominalUrfather br) [0..lastPref br]
-                reusePrefix pr' = case r of
-                  "R0" ->
-                    addAccFormula p (dsInsert d (dsUnion ds ds2), ur, pr') br >>?
-                    addFormulas p [PrFormula pr' spr (dsInsert d ds) f] >>?
-                    addDiaRuleCheck pr spr (r,f) pr'
-                  "R1" ->
-                    addAccFormula p (dsInsert d (dsUnion ds sds2), sur, pr') br >>?
-                    addFormulas p [PrFormula pr pr' (dsInsert d ds) f] >>?
-                    addDiaRuleCheck pr spr (r,f) pr'
-                  _ -> error "Syntaxis error on diamonds"
-                properNewBranch = case r of
-                  "R0" ->
-                    [ createNewNode p br >>?
-                      addAccFormula p (depsL, ur, newPr) >>?
-                      addFormulas p [PrFormula newPr spr ds f] >>?
-                      addDiaRuleCheck pr spr (r,f) newPr
-                    ]
-                  "R1" ->
-                    [ createNewNode p br >>?
-                      addAccFormula p (depsR, sur, newPr) >>?
-                      addFormulas p [PrFormula pr newPr ds f] >>?
-                      addDiaRuleCheck pr spr (r,f) newPr
-                    ]
-                  _ -> error "Syntaxis error on diamonds"
+                reusePrefix pr' = 
+                    addAccFormula p (dsInsert d (dsUnion ds ds2), originNode, pr') br >>?
+                    addFormulas p [buildFormula pr' (dsInsert d ds)] >>?
+                    addDiaRuleCheck pr spr (player,f) pr'
+
+                properNewBranch = 
+                    [createNewNode p br >>?
+                    addAccFormula p (deps, originNode, newPr) >>?
+                    addFormulas p [buildFormula newPr ds] >>?
+                    addDiaRuleCheck pr spr (player,f) newPr]
+                
+                (originNode, deps, buildFormula) = case player of
+                  L->(ur, depsL ,\targetNode ds-> PrFormula targetNode spr ds f)
+                  R->(sur, depsR ,\targetNode ds-> PrFormula pr targetNode ds f)
                 depsL = if CL.random p && minimal p then dsInsert d (dsUnion ds ds2) else dsUnion ds ds2
                 depsR = if CL.random p && minimal p then dsInsert d (dsUnion ds sds2) else dsUnion ds sds2
                 choices = tryAllPrefixes ++ properNewBranch

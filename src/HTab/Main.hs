@@ -22,9 +22,8 @@ import HTab.CommandLine( filename, random, seed,
 import HTab.Branch( BranchInfo(..), initialBranch)
 import HTab.Statistics( Statistics, initialStatisticsStateFor, printOutMetricsFinal )
 import HTab.Tableau( OpenFlag(..), tableauStart )
-import HTab.Formula( Theory, RelInfo, LanguageInfo(..), Task,
-                     Formula(Con), encodeValidityTest, encodeSatTest,
-                     showRelInfo, list )
+import HTab.Formula( Theory, LanguageInfo(..), Task,
+                     Formula(Con), encodeValidityTest, encodeSatTest, list )
 import qualified HTab.Formula as F
 import qualified HyLo.Signature.String as S
 import HTab.ModelGen ( Model, toDot )
@@ -42,17 +41,16 @@ runWithParams p =
   i <- readFile (filename p)
   if head (words i) == "begin"
    then do
-    let (f,relInfo,fLang) = F.simpleParse p i
+    let (f,fLang) = F.simpleParse p i
     when (showFormula p) $
      myPutStrLn $
       unlines ["Input for SAT test:",
                "{ " ++ show f ++ " }",
-               "End of input",
-               "Relations properties :" ++ showRelInfo relInfo ]
+               "End of input"]
     --
     tResult <- inTimeout (timeout p) $
                 do (result,s) <- tableauInit p g $
-                                  initialBranch p fLang relInfo f
+                                  initialBranch p fLang f
                    whenNormal $ printOutMetricsFinal s
                    return result
     --
@@ -80,12 +78,12 @@ inTimeout t action = T.timeout (t * (10::Int)^(6::Int)) action
 
 --
 
-runTasks :: (Theory,RelInfo,LanguageInfo,[Task]) -> Params -> StdGen -> IO TaskRunFlag
-runTasks allTasks@(theory,relInfo,fLang,tasks) p g =
+runTasks :: (Theory,LanguageInfo,[Task]) -> Params -> StdGen -> IO TaskRunFlag
+runTasks allTasks@(theory,fLang,tasks) p g =
  do
     myPutStrLn "== Checking theory satisfiability =="
     res <- time "Task time:" $
-            runTask (Satisfiable, genModel p, []) relInfo fLang theory p g
+            runTask (Satisfiable, genModel p, []) fLang theory p g
     case res of
      SUCCESS | null tasks -> return SUCCESS
              | otherwise  -> do myPutStrLn "\n==         Starting tasks         =="
@@ -96,22 +94,22 @@ runTasks allTasks@(theory,relInfo,fLang,tasks) p g =
 
 --
 
-runTasks2 :: (Theory,RelInfo,LanguageInfo,[Task]) -> Params -> StdGen -> IO TaskRunFlag
-runTasks2 (_,_,_,[]) _ _               = error "runTasks2 empty list error"
-runTasks2 (theory,relInfo,fLang,(hd:tl)) p g =
- do res <- time "Task time:" $ runTask hd relInfo fLang theory p g
+runTasks2 :: (Theory,LanguageInfo,[Task]) -> Params -> StdGen -> IO TaskRunFlag
+runTasks2 (_,_,[]) _ _               = error "runTasks2 empty list error"
+runTasks2 (theory,fLang,(hd:tl)) p g =
+ do res <- time "Task time:" $ runTask hd fLang theory p g
     case res of
       SUCCESS | null tl   -> return SUCCESS
-              | otherwise -> runTasks2 (theory,relInfo,fLang,tl) p g
-      FAILURE             -> do _ <- runTasks2 (theory,relInfo,fLang,tl) p g
+              | otherwise -> runTasks2 (theory,fLang,tl) p g
+      FAILURE             -> do _ <- runTasks2 (theory,fLang,tl) p g
                                 return FAILURE
 
 --
 
-runTask :: Task -> RelInfo -> LanguageInfo -> Formula -> Params -> StdGen -> IO TaskRunFlag
-runTask (Satisfiable,mOutFile,fs) relInfo fLang theory p g =
+runTask :: Task -> LanguageInfo -> Formula -> Params -> StdGen -> IO TaskRunFlag
+runTask (Satisfiable,mOutFile,fs) fLang theory p g =
  do myPutStrLn "\n* Satisfiability task"
-    let f = encodeSatTest relInfo theory fs
+    let f = encodeSatTest theory fs
     --
     let f_lines = case f of
                    Con cs -> list cs
@@ -119,10 +117,9 @@ runTask (Satisfiable,mOutFile,fs) relInfo fLang theory p g =
     when (showFormula p) $
      myPutStrLn $ unlines $ ["Input for SAT test:",
                            "{"] ++ intersperse "" (map show f_lines) ++
-                           ["}", "End of input",
-                           "Relations properties :" ++ showRelInfo relInfo ]
+                           ["}", "End of input"]
     --
-    (result,stats) <- tableauInit p g $ initialBranch p fLang relInfo f
+    (result,stats) <- tableauInit p g $ initialBranch p fLang f
     --
     whenNormal $ printOutMetricsFinal stats
     --
@@ -133,17 +130,16 @@ runTask (Satisfiable,mOutFile,fs) relInfo fLang theory p g =
        CLOSED _ -> do myPutStrLn "The formula is unsatisfiable."
                       return FAILURE
 
-runTask (Valid,mOutFile,fs) relInfo fLang theory p g =
+runTask (Valid,mOutFile,fs) fLang theory p g =
  do myPutStrLn "\n* Validity task"
-    let f = encodeValidityTest relInfo theory fs
+    let f = encodeValidityTest theory fs
     --
     when (showFormula p) $
      myPutStrLn $ unlines ["Input for SAT test:",
                            "{ " ++ show f ++ " }",
-                           "End of input",
-                           "Relations properties :" ++ showRelInfo relInfo ]
+                           "End of input"]
     --
-    (result,stats) <- tableauInit p g $ initialBranch p fLang relInfo f
+    (result,stats) <- tableauInit p g $ initialBranch p fLang f
     --
     whenNormal $ printOutMetricsFinal stats
     --
@@ -154,7 +150,7 @@ runTask (Valid,mOutFile,fs) relInfo fLang theory p g =
        CLOSED _ -> do myPutStrLn "The formula is valid."
                       return SUCCESS
 
-runTask (Counting,_,_) _ _ _ _ _ =
+runTask (Counting,_,_) _ _ _ _ =
  do myPutStrLn "\n* Counting task is NOT supported"
     return FAILURE
 

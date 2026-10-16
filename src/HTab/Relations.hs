@@ -12,7 +12,7 @@ import Data.Map ( Map )
 
 import qualified Data.List as List
 
-import HTab.Formula (Prefix, Rel, DependencySet, dsShow, dsUnion )
+import HTab.Formula (Prefix, Player, DependencySet, dsShow, dsUnion )
 import Prelude hiding (id, pred, succ, null)
 
 type OutRels = IntMap {- Prefix -} [(Prefix,DependencySet)]
@@ -23,8 +23,8 @@ emptyRels = I.empty
 null :: OutRels -> Bool
 null = I.null
 
-allRels :: OutRels -> [(Prefix,Rel,Prefix)]
-allRels rels = [ (p1,"R",p2) | (p1,ds_out_s) <-  I.toList rels,
+allRels :: OutRels -> [(Prefix,Prefix)]
+allRels rels = [ (p1,p2) | (p1,ds_out_s) <-  I.toList rels,
                              (p2,_) <- ds_out_s ]
 
 successors :: OutRels -> Prefix -> [(Prefix,DependencySet)]

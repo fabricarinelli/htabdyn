@@ -13,8 +13,8 @@ import qualified HyLo.Model as M
 import qualified HyLo.Signature.String as S
 
 import HTab.Formula( PrFormula(..), Formula(..), Literal(..), Atom(..),
-                     Prefix, Rel, LanguageInfo(..),
-                     RelInfo, isPositiveProp )
+                     Prefix, Player, LanguageInfo(..),
+                     isPositiveProp )
 import HTab.Branch( Branch(..), prefixes, getUrfather,
                     patternOf, findByPattern,
                     isInTheModel, getModelRepresentative)
@@ -45,14 +45,15 @@ buildModel br =
              blockedDia@(PrFormula _ _ _ (Dia _ _)) <- get [] pr (blockedDias br),
              let pat = patternOf br blockedDia,
              let pr2 = findByPattern br pat ]
-  rels = (allRels $ accStr br) ++ pbBlocked
+  allRelsWithRelation = map (\(a,b)->(a,"R",b)) (allRels (accStr br))
+  rels = allRelsWithRelation ++ pbBlocked
   inModel = flip getModelRepresentative
   rs = Set.fromList
         $ map toSimpSig
         $ map (\(p1,r,p2) -> ((p1 `inModel` br) + bias , r,(p2 `inModel` br) + bias))
           rels
 
-toSimpSig :: (Prefix,Rel,Prefix) -> (S.NomSymbol,S.RelSymbol,S.NomSymbol)
+toSimpSig :: (Prefix,String,Prefix) -> (S.NomSymbol,S.RelSymbol,S.NomSymbol)
 toSimpSig (p1,r,p2) = (S.NomSymbol (show p1), S.RelSymbol r, S.NomSymbol (show p2))
 
 prefixAndProps :: Branch -> [(Prefix,S.PropSymbol)]

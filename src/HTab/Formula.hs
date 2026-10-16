@@ -1,6 +1,6 @@
 module HTab.Formula
 
-(Nom, Prop, Rel, Prefix, Formula(..), Literal(..), Atom(..),
+(Nom, Prop, Player(..), Prefix, Formula(..), Literal(..), Atom(..),
 DependencySet, Dependency,
 dsUnion, dsUnions, dsInsert, dsMember,
 dsEmpty, dsMin, dsShow, addDeps,
@@ -10,10 +10,10 @@ conj, disj, taut,
 prop, nom, prefix, negPr,
 replaceVar,
 firstPrefixedFormula,
-parse, simpleParse, Theory, RelInfo, Task,
-showRelInfo, negLit,
+parse, simpleParse, Theory, Task,
+negLit,
 encodeValidityTest, encodeSatTest,
-HyLoFormula, RelProperty(..),
+HyLoFormula,
 isPositiveNom, isPositiveProp, isProp, isLProp, isRProp, list, imp,
 )
 
@@ -37,7 +37,7 @@ import qualified HyLo.Formula as F
 import HTab.CommandLine ( Params(..) )
 
 type Prefix  = Int
-type Rel     = String
+data Player  = L | R deriving(Eq, Ord)
 type Nom     = String
 type Prop    = String
 data Atom    = Taut | N String | P String deriving(Eq, Ord)
@@ -67,6 +67,10 @@ instance Show Atom where
  show (N n)  = n
  show (P p)  = p
 
+instance Show Player where
+ show L = "L"
+ show R = "R"
+
 instance Show Literal where
  show (PosLit a) = show a
  show (NegLit a) =  '!' : show a
@@ -74,108 +78,68 @@ instance Show Literal where
 data Formula
      = Lit    Literal
      | Con   (Set Formula)     | Dis   (Set Formula)
-     | Box    Rel     Formula
-     | Dia    Rel     Formula
+     | Box    Player     Formula
+     | Dia    Player     Formula
   deriving (Eq, Ord)
 
 instance Show Formula where
  show (Lit a)    = show a
  show (Con fs)   = "^" ++ show (list fs)
  show (Dis fs)   = "v" ++ show (list fs)
- show (Box r f)  = "[" ++ r ++ "]"   ++ show f
- show (Dia r f)  = "<" ++ r ++ ">"   ++ show f
+ show (Box r f)  = "[" ++ show r ++ "]"   ++ show f
+ show (Dia r f)  = "<" ++ show r ++ ">"   ++ show f
 
 -- parsing of the input file
 
 type Theory  = Formula
 type Task    = P.InferenceTask
-type PRelInfo = [P.RelInfo]
-
-type RelInfo = Map String [RelProperty]
-data RelProperty   =   Reflexive
-                     | Transitive
-                     | Universal
-                     --
-                     | SubsetOf [Rel]
-                     deriving (Eq, Show, Ord)
-
-showRelInfo :: RelInfo -> String
-showRelInfo = Map.foldrWithKey (\r v -> (++ " " ++ show r ++ " -> " ++ show v )) ""
 
 
-parse :: Params -> String -> (Theory,RelInfo,LanguageInfo,[Task])
+parse :: Params -> String -> (Theory,LanguageInfo,[Task])
 parse p s
-  = (theory, relInfo, fLang, tasks)
+  = (theory, fLang, tasks)
     where parseOutput = InputFile.myparse s       -- direct parse from hylolib
-          pRelInfo    = P.relations parseOutput
-          relInfo     = convertToOurType pRelInfo
-          theory      = convert relInfo $ P.theory parseOutput
+          theory      = convert $ P.theory parseOutput
           tasks       = P.tasks parseOutput
           fLang       = langInfo parseOutput
 
-
--- assume input formula is relation-changing
--- then it is monomodal, only relation is R
-monomodal :: RelInfo -> RelInfo
-monomodal _ = Map.fromList [("R", [])]
- -- TODO check parameter and fail if relation other than R used in input file
-
-
-convertToOurType :: PRelInfo -> RelInfo
- -- and add for each relation in the formula, the relevant key
-convertToOurType prelI = foldr insertRelProp Map.empty (concatMap convertOne prelI)
- where insertRelProp (rs,pr) = Map.insertWith (++) rs [pr]
-       convertOne (r,props)  = concatMap (c r) props
-       c r P.Reflexive       = [(up r,Reflexive    )]
-       c _ P.Symmetric       = error "Symmetric not handled"
-       c r P.Transitive      = [(up r,Transitive   )]
-       c r P.Universal       = [(up r,Universal    )]
-       c _ (P.InverseOf _)   = error "InverseOf not handled" 
-       c r (P.SubsetOf ss)   = [(up r,SubsetOf [ up s | s <- ss])]
-       c r (P.Equals ss)     = [(up r,SubsetOf [ up s | s <- ss])]
-                               ++ [(up s,SubsetOf [up r]) | s <- ss]
-       c _ (P.TClosureOf _)  = error "TClosureOf not handled"
-       c _ (P.TRClosureOf _) = error "TRClosureOf not handled"
-       c _ P.Functional      = error "Functional not handled"
-       c _ P.Injective       = error "Injective not handled"
-       c _ P.Difference      = error "Difference not handled"
-
-simpleParse :: Params -> String -> (Theory,RelInfo,LanguageInfo)
+simpleParse :: Params -> String -> (Theory,LanguageInfo)
 simpleParse p s =
- let (t,r,i,_) = parse p $ "signature { automatic } theory { " ++ removeBeginEnd s ++ "}"
- in (t,r,i)
+ let (t,i,_) = parse p $ "signature { automatic } theory { " ++ removeBeginEnd s ++ "}"
+ in (t,i)
  where removeBeginEnd = unwords . delete "begin" . delete "end" . words
 
 -- convert from hylolib format to htab's
-convert :: RelInfo -> [F.Formula S.NomSymbol S.PropSymbol S.RelSymbol]
-             -> Formula
-convert relI = conv_ relI . foldr (F.:&:) F.Top
+convert :: [F.Formula S.NomSymbol S.PropSymbol S.RelSymbol] -> Formula
+convert  = conv_  . foldr (F.:&:) F.Top
 
-conv_ :: RelInfo -> F.Formula S.NomSymbol S.PropSymbol S.RelSymbol
+conv_ :: F.Formula S.NomSymbol S.PropSymbol S.RelSymbol
            -> Formula
-conv_  _   F.Top               = taut
-conv_  _   F.Bot               = neg taut
-conv_  _   (F.Prop p)          = prop p
-conv_  _   (F.Nom  n)          = nom n
-conv_ relI (F.Neg  f)          = neg $ conv_ relI f
-conv_ relI (f1 F.:&:    f2)    = conv_ relI f1 `conj` conv_ relI f2
-conv_ relI (f1 F.:|:    f2)    = conv_ relI f1 `disj` conv_ relI f2
-conv_ relI (f1 F.:-->:  f2)    = conv_ relI f1 `imp`  conv_ relI f2
-conv_ relI (f1 F.:<-->: f2)    = conv_ relI f1 `dimp` conv_ relI f2
-conv_ relI (F.Diam (S.RelSymbol r) f)        = Dia (up r) (conv_ relI f)
-conv_ relI (F.Box  (S.RelSymbol r) f)        = Box (up r) (conv_ relI f)
-conv_ _    f                 = error (show f ++ "not supported")
+conv_  F.Top               = taut
+conv_  F.Bot               = neg taut
+conv_  (F.Prop p)          = prop p
+conv_  (F.Nom  n)          = nom n
+conv_  (F.Neg  f)          = neg $ conv_ f
+conv_  (f1 F.:&:    f2)    = conv_  f1 `conj` conv_  f2
+conv_  (f1 F.:|:    f2)    = conv_  f1 `disj` conv_  f2
+conv_  (f1 F.:-->:  f2)    = conv_  f1 `imp`  conv_  f2
+conv_  (f1 F.:<-->: f2)    = conv_  f1 `dimp` conv_  f2
+conv_  (F.Diam (S.RelSymbol r) f)        = Dia (toPlayer r) (conv_ f)
+conv_  (F.Box  (S.RelSymbol r) f)        = Box (toPlayer r) (conv_ f)
+conv_   f                  = error (show f ++ "not supported")
 
+toPlayer :: String -> Player
+toPlayer r = if (up r)=="R0" then L else R 
 
 type HyLoFormula = F.Formula S.NomSymbol S.PropSymbol S.RelSymbol
 
-encodeValidityTest :: RelInfo -> Formula -> [HyLoFormula] -> Formula
-encodeValidityTest relI th fs
- = neg $ conj th (convert relI fs)
+encodeValidityTest :: Formula -> [HyLoFormula] -> Formula
+encodeValidityTest th fs
+ = neg $ conj th (convert  fs)
 
-encodeSatTest :: RelInfo -> Formula -> [HyLoFormula] -> Formula
-encodeSatTest relI th fs
- = conj th (convert relI fs)
+encodeSatTest :: Formula -> [HyLoFormula] -> Formula
+encodeSatTest th fs
+ = conj th (convert  fs)
 
 -- CONSTRUCTORS
 

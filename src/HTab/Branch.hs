@@ -38,7 +38,7 @@ import HTab.Literals ( UpdateResult(..), Literals,
 data BranchInfo = BranchOK Branch |
                   BranchClash Branch Prefix DependencySet Formula
 
-type BoxConstraints     = IntMap {- Prefix -} [((Formula,Prefix,Rel),DependencySet)]
+type BoxConstraints     = IntMap {- Prefix -} [((Formula,Prefix,Player),DependencySet)]
 type EquivClasses = DS.DisjSet DS.Pointer
 
 data Branch =
@@ -51,7 +51,7 @@ data Branch =
                  -- pending formulas / todo lists
                       todoList :: TodoList,
                  -- saturation of rules
-                       diaRlCh :: IntMap {- Prefix -} (Set (Prefix,Rel,Formula)),
+                       diaRlCh :: IntMap {- Prefix -} (Set (Prefix,Player,Formula)),
                  -- pattern blocking
                       patterns :: IntMap (Set Formula),
                  -- backjumping data attached to equivalence classes
@@ -63,8 +63,7 @@ data Branch =
                        nextNom :: Int,
                  -- information about language of input formula and blocking mode
                  inputLanguage :: LanguageInfo,
-                   blockedDias :: IntMap {- Prefix -} [PrFormula],
-                       relInfo :: RelInfo}
+                   blockedDias :: IntMap {- Prefix -} [PrFormula]}
 
 --
 
@@ -80,8 +79,7 @@ instance Show Branch where
      "\nPrefix to dependency set: ", showIMap  dsShow "\n " (prToDepSet br),
      "\nPrefix-Nominal classes : ", showMap ", " (nomPrefClasses br),
      "\nlastPref : ", show (lastPref br),
-     " nextnom : ", show (nextNom br),
-     "\nRel info:", show (relInfo br), "\n"
+     " nextnom : ", show (nextNom br), "\n"
   ]
    where
     showIMap :: (a -> String) -> String -> IntMap a -> String
@@ -89,7 +87,7 @@ instance Show Branch where
      = I.foldrWithKey (\k v -> (++ sep ++ show k ++ " -> " ++ vShow v )) "" im
     showMap sep = Map.foldrWithKey (\k v -> (++ sep ++ show k ++ " -> " ++ show v )) ""
     showMap_lits ml = Map.foldrWithKey (\l d -> (++ show l ++ " " ++ dsShow d  ++ ", ")) "" ml
-    showMap_rel bxList = concatMap (\((f,pr,r),ds) -> "-" ++ r ++ "-> " ++ show f ++ ", ") bxList
+    showMap_rel bxList = concatMap (\((f,pr,r),ds) -> "-" ++ show r ++ "-> " ++ show f ++ ", ") bxList
 data TodoList= TodoList{disjTodo :: Set PrFormula,
                          diaTodo :: Set PrFormula,
                        mergeTodo :: Set (DependencySet, Prefix, Nom)}
@@ -296,7 +294,7 @@ inSameClass br p n
 {-     box-related constraints     -}
 
 boxRule :: DependencySet
-            -> ([((Formula,Prefix,Rel),DependencySet)],
+            -> ([((Formula,Prefix,Player),DependencySet)],
                [(Prefix,DependencySet)]) 
             -> [PrFormula]
 boxRule deps (listBox, listAcc) 
@@ -304,39 +302,37 @@ boxRule deps (listBox, listAcc)
     |((f,inactive, player),ds1) <- listBox,
     (p,ds2) <- listAcc]
     where
-      buildFormula :: Rel -> Prefix -> Prefix -> Formula -> DependencySet -> DependencySet -> PrFormula
+      buildFormula :: Player -> Prefix -> Prefix -> Formula -> DependencySet -> DependencySet -> PrFormula
       buildFormula player p inactive f ds1 ds2 = case player of
-        "R0"-> PrFormula p inactive (dsUnions [deps,ds1,ds2]) f
-        "R1"-> PrFormula inactive p (dsUnions [deps,ds1,ds2]) f 
-        _   -> error("Syntaxis error on boxes")
+        L-> PrFormula p inactive (dsUnions [deps,ds1,ds2]) f
+        R-> PrFormula inactive p (dsUnions [deps,ds1,ds2]) f 
 
-addBoxConstraint :: Prefix -> Prefix -> Rel -> Formula -> DependencySet -> Params -> Branch
+
+addBoxConstraint :: Prefix -> Prefix -> Player -> Formula -> DependencySet -> Params -> Branch
                      -> BranchInfo
-addBoxConstraint pr_ spr_ r f ds p br
- | boxAlreadyDone br pr spr (r,f) = BranchOK br
+addBoxConstraint pr_ spr_ player f ds p br
+ | boxAlreadyDone br pr spr (player,f) = BranchOK br
  | otherwise = 
-      let newBr = br{boxFwd = I.insert targetPr (((f, inactivePr, r), ds) : I.findWithDefault [] targetPr (boxFwd br)) (boxFwd br)}
+      let newBr = br{boxFwd = I.insert targetPr (((f, inactivePr, player), ds) : I.findWithDefault [] targetPr (boxFwd br)) (boxFwd br)}
           succs = successors (accStr br) targetPr
           fromBox = map (\(newNode,ds2) -> buildFormula newNode ds2) succs
       in
          addFormulas p fromBox newBr
  where
-  (targetPr, inactivePr, buildFormula) = case r of 
-    "R0"->(pr, spr, \newNode ds2 -> PrFormula newNode spr (dsUnion ds ds2) f)
-    "R1"->(spr, pr, \newNode ds2 -> PrFormula pr newNode (dsUnion ds ds2) f)
-    _   ->error("Error in box sintaxis") 
+  (targetPr, inactivePr, buildFormula) = case player of 
+    L->(pr, spr, \newNode ds2 -> PrFormula newNode spr (dsUnion ds ds2) f)
+    R->(spr, pr, \newNode ds2 -> PrFormula pr newNode (dsUnion ds ds2) f)
   pr = getUrfather br (DS.Prefix pr_)
   spr = getUrfather br (DS.Prefix spr_)
 
-boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Rel,Formula) -> Bool
-boxAlreadyDone br ur sur (r,f)
-  = let targetNode = case r of
-                        "R0" -> ur
-                        "R1" -> sur
-                        _    -> error "Syntaxis error on boxes"
+boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Player,Formula) -> Bool
+boxAlreadyDone br ur sur (player,f)
+  = let targetNode = case player of
+                        L -> ur
+                        R -> sur
   in case I.lookup targetNode (boxFwd br) of 
     Nothing       -> False
-    Just boxList  -> any (\((fBox, _, rBox), _) -> fBox == f && rBox == r) boxList
+    Just boxList  -> any (\((fBox, _, playerBox), _) -> fBox == f && playerBox == player) boxList
 
 -- accessibility Formulas
 
@@ -348,9 +344,9 @@ addAccFormula p (ds, p1_, p2_) br
       p2 = getUrfather br (DS.Prefix p2_)
       boxesInNode = iget [] p1 (boxFwd br)
       boxApplications = map (\((f, inactivePrefix, player), ds2) -> case player of
-        "R0"-> PrFormula p2 inactivePrefix (dsUnion ds ds2) f 
-        "R1"-> PrFormula inactivePrefix p2 (dsUnion ds ds2) f
-        _   -> error("Syntaxis error on boxes")) boxesInNode
+        L-> PrFormula p2 inactivePrefix (dsUnion ds ds2) f 
+        R-> PrFormula inactivePrefix p2 (dsUnion ds ds2) f
+        ) boxesInNode
       newBr = insertRelationBranch br p1 p2 ds
 
 
@@ -378,19 +374,19 @@ patternBlocked br f = not $ I.null $ I.filter lookForSuperset (patterns br)
 -- { f } U { f' | p:[r]f' in branch }
 -- r has to be forward
 patternOf :: Branch -> PrFormula -> Set Formula
-patternOf br (PrFormula pr spr _ (Dia r f))
+patternOf br (PrFormula pr spr _ (Dia player f))
  = Set.insert f boxes
     where ur  = getUrfather br (DS.Prefix pr)
           sur = getUrfather br (DS.Prefix spr)
-          boxes = boxesOf br target_node r
-          target_node = case r of
-            "R0"-> ur
-            "R1"-> sur
+          boxes = boxesOf br target_node
+          target_node = case player of
+            R-> ur
+            L-> sur
 
 patternOf _ _ = error "patternOf called with a non diamond formula"
 
-boxesOf :: Branch -> Prefix -> Rel -> Set Formula
-boxesOf br p r
+boxesOf :: Branch -> Prefix -> Set Formula
+boxesOf br p
  = set $ map (\((e,_,_),_) -> e) $ iget [] p (boxFwd br)
 
 findByPattern :: Branch -> Set Formula -> Prefix
@@ -403,12 +399,12 @@ findByPattern br pattern =
 -- add checks for
 --  1. pattern blocking
 --  2. prefix-level diamond rule saturation
-addDiaRuleCheck :: Prefix -> Prefix -> (Rel,Formula) -> Prefix -> Branch -> BranchInfo
-addDiaRuleCheck pr spr (r,f) newPr br =
+addDiaRuleCheck :: Prefix -> Prefix -> (Player,Formula) -> Prefix -> Branch -> BranchInfo
+addDiaRuleCheck pr spr (player,f) newPr br =
   BranchOK br2
-   where pattern = patternOf br (PrFormula ur sur dsEmpty (Dia r f))
+   where pattern = patternOf br (PrFormula ur sur dsEmpty (Dia player f))
          br1 = br{patterns = I.insert newPr pattern (patterns br)}
-         br2 = br1{diaRlCh=I.insertWith Set.union ur (Set.singleton (sur,r,f)) (diaRlCh br1)}
+         br2 = br1{diaRlCh=I.insertWith Set.union ur (Set.singleton (sur,player,f)) (diaRlCh br1)}
          ur = getUrfather br (DS.Prefix pr)
          sur = getUrfather br (DS.Prefix spr)
 
@@ -440,9 +436,9 @@ createNewNom br
 --  - add a nominal formula at a fresh prefix for each nominal of the input language
 --    (even if the nominal was filtered out during lexical normalisation)
 --  - add reflexive links for prefixes 0 and nominal witnesses
-initialBranch :: Params -> LanguageInfo -> RelInfo -> Formula
+initialBranch :: Params -> LanguageInfo -> Formula
                   -> BranchInfo
-initialBranch p fLang relInfo_ f
+initialBranch p fLang f
  = addFormulas p [pf] br
     where
           pf = firstPrefixedFormula f
@@ -467,8 +463,7 @@ initialBranch p fLang relInfo_ f
                    prToDepSet        = I.empty,
                    nomPrefClasses    = initClasses,
                    inputLanguage     = fLang,
-                   blockedDias       = I.empty,
-                   relInfo           = relInfo_
+                   blockedDias       = I.empty
                  }
 
 addToLiterals :: Prefix -> DependencySet -> Literal -> Branch -> BranchInfo
@@ -484,12 +479,6 @@ addToLiterals pr_ ds1 l br
 {-     other functions     -}
 prefixes :: Branch -> [Prefix]
 prefixes br = [0..(lastPref br)]
-
-hasProperty :: RelProperty -> RelInfo -> Rel -> Bool
-hasProperty p relI r = case Map.lookup r relI of
-                        Nothing         -> False
-                        Just properties -> p `elem` properties
-
 
 combine :: [a] -> [b] -> [(a,b)]
 combine [] _  = error "combine: first list empty"
