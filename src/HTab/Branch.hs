@@ -327,12 +327,12 @@ addBoxConstraint pr_ spr_ player f ds p br
 
 boxAlreadyDone :: Branch -> Prefix -> Prefix -> (Player,Formula) -> Bool
 boxAlreadyDone br ur sur (player,f)
-  = let targetNode = case player of
-                        L -> ur
-                        R -> sur
+  = let (targetNode, inactivePrefix) = case player of
+                        L -> (ur,sur)
+                        R -> (sur,ur)
   in case I.lookup targetNode (boxFwd br) of 
     Nothing       -> False
-    Just boxList  -> any (\((fBox, _, playerBox), _) -> fBox == f && playerBox == player) boxList
+    Just boxList  -> any (\((fBox, inactivePrefixBox, playerBox), _) -> fBox == f && inactivePrefixBox==inactivePrefix && playerBox == player) boxList
 
 -- accessibility Formulas
 
