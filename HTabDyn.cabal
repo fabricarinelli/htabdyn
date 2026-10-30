@@ -25,7 +25,6 @@ Executable          htabdyn
                        HTab.Formula
                        HTab.Literals
                        HTab.Main
-                       HTab.Memory
                        HTab.ModelGen
                        HTab.Relations
                        HTab.RuleId
